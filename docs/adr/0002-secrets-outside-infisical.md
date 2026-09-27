@@ -1,8 +1,9 @@
 # Only the master keys and the recovery keys live outside Infisical
 
-Every `.env` on the host, userland's own and each consumer's, has its real copy in Infisical. A
-helper writes the file from it just before `docker compose up`, and nobody edits the file by
-hand. Two kinds of secret also live outside Infisical, and nothing else does:
+userland's `.env` has its real copy in Infisical. `bin/up` writes the file from it just before
+`docker compose up`, and nobody edits the file by hand. A consumer's `.env` is its own admin's,
+who may keep it in Infisical too, in a project of its own; no helper reads it. Two kinds of
+secret also live outside Infisical, and nothing else does:
 
 - **The two master keys**, the archivist's and Infisical's, live in the secret store. Each one
   unlocks everything else: the archive, and every secret in Infisical. The archivist reads its

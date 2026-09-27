@@ -74,7 +74,8 @@ _Avoid_: mode, environment, stage, dev/prod, exposure
 
 **Consumer**:
 A project of your own that uses userland and is not part of it. It may have a database on
-Postgres or ClickHouse, and it may sit behind traefik; userland never runs it.
+Postgres or ClickHouse, and it may sit behind traefik; userland never runs it. Its `.env` is its
+own admin's: it may live in Infisical, in a project of its own, but no helper reads or writes it.
 _Avoid_: tenant, client, app, application
 
 **Provisioning**:
@@ -84,12 +85,13 @@ user on its own afterwards: a new password is given by hand too.
 _Avoid_: seeding, bootstrapping, init, setup, migration, converging
 
 **Helper**:
-A small POSIX sh script you run on the host, to do what compose can't. It needs only docker.
+A small POSIX sh script you run on the host, to do what compose can't. It needs only docker. It
+is generic: it never makes what one product needs, nor runs a step that is one product's.
 _Avoid_: tool, CLI, command, wrapper
 
 **Infisical**:
-The product that keeps the real copy of every `.env`: userland's own, and each consumer's. It
-runs on the host, keeps what it holds in a database of its own on Postgres, and encrypts it under
+The product that keeps the real copy of userland's `.env`, and of any consumer's whose admin
+keeps it there, each in a project of its own. It runs on the host, keeps what it holds in a database of its own on Postgres, and encrypts it under
 its master key. It is not the secret store.
 _Avoid_: secret store, vault, secret manager
 

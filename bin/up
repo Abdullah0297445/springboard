@@ -1,0 +1,124 @@
+#!/bin/sh
+set -eu
+export LC_ALL=C
+
+usage="usage: bin/up [--rebuild]"
+cli=infisical/cli:0.43.136
+
+die() {
+	echo "up: $1" >&2
+	exit 1
+}
+
+rebuild=
+case $# in
+0) ;;
+1)
+	[ "$1" = --rebuild ] || die "$1 is not an option. $usage"
+	rebuild=1
+	;;
+*) die "$usage" ;;
+esac
+
+[ -f compose.yml ] && [ -f config/env.tmpl ] || die "run bin/up from the root of userland."
+env_file=${COMPOSE_ENV_FILES:-.env}
+case $env_file in
+*,*) die "COMPOSE_ENV_FILES names more than one file, and bin/up writes one." ;;
+esac
+next=$env_file.next
+[ -f "$env_file" ] || die "there is no $env_file. On a new host, write the first one, and run bin/up --rebuild."
+
+cleanup() {
+	rm -f "$next"
+}
+trap cleanup EXIT
+
+line() {
+	sed -n "s/^$1=//p" "$env_file" | tail -n 1 | sed 's/^"\(.*\)"$/\1/'
+}
+
+if [ -n "$rebuild" ]; then
+	missing=
+	for name in ARCHIVIST_S3_BUCKET ARCHIVIST_S3_REGION ARCHIVIST_S3_ENDPOINT ARCHIVIST_S3_ACCESS_KEY_ID \
+		ARCHIVIST_S3_SECRET_ACCESS_KEY ARCHIVIST_KEY_PROVIDER ARCHIVIST_KEY_NAME ARCHIVIST_KEY_REGION \
+		ARCHIVIST_KEY_ACCESS_KEY_ID ARCHIVIST_KEY_SECRET_ACCESS_KEY POSTGRES_PASSWORD PGBOUNCER_AUTH_PASSWORD \
+		INFISICAL_DB_PASSWORD INFISICAL_REDIS_PASSWORD INFISICAL_AUTH_SECRET INFISICAL_CLIENT_ID \
+		INFISICAL_CLIENT_SECRET INFISICAL_ENCRYPTION_KEY DOMAIN SCHEME SECURE_COOKIES; do
+		[ -n "$(line "$name")" ] || missing="$missing $name"
+	done
+	[ -z "$missing" ] ||
+		die "the first $env_file lacks$missing. Put each there from your copy of the recovery keys, and INFISICAL_ENCRYPTION_KEY from the secret store. Nothing was started."
+fi
+
+held_by_postgres() {
+	docker exec postgres-18 psql -X -tA -U postgres -d postgres -c "SELECT count(*) FROM pg_database WHERE datname NOT IN ('postgres', 'template0', 'template1')"
+}
+
+held_by_clickhouse() {
+	docker exec clickhouse clickhouse-client --query "SELECT count() FROM system.databases WHERE name NOT IN ('system', 'information_schema', 'INFORMATION_SCHEMA', 'default')"
+}
+
+if [ -n "$rebuild" ]; then
+	grep -q '^COMPOSE_FILE=' "$env_file" ||
+		export COMPOSE_FILE=compose.yml:compose/postgres.yml:compose/archivist.yml:compose/infisical.yml
+	docker compose up --detach --wait --wait-timeout 120 postgres-18 postgres-dumper archivist ||
+		die "Postgres and the archivist did not start."
+	held=$(held_by_postgres) || die "cannot reach postgres-18."
+	[ "$held" != 0 ] || bin/rebuild --postgres ||
+		die "bin/rebuild --postgres stopped, and says why above."
+fi
+
+docker compose up --detach --wait --wait-timeout 120 postgres-18 ||
+	die "Postgres did not start. Nothing was changed."
+held=$(held_by_postgres) || die "cannot reach postgres-18. Nothing was changed."
+[ "$held" != 0 ] ||
+	die "Postgres holds no database. On a new host, write the first $env_file and run bin/up --rebuild. Nothing was changed."
+
+docker compose up --detach --wait --wait-timeout 300 infisical ||
+	die "Infisical did not start. Nothing was changed."
+unset COMPOSE_FILE
+
+token=$(
+	INFISICAL_UNIVERSAL_AUTH_CLIENT_ID=$(line INFISICAL_CLIENT_ID) \
+		INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET=$(line INFISICAL_CLIENT_SECRET) \
+		docker run --rm --network container:infisical \
+		-e INFISICAL_UNIVERSAL_AUTH_CLIENT_ID -e INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET \
+		"$cli" login --method=universal-auth --domain http://127.0.0.1:8080 --silent --plain
+) || true
+case $token in
+*.*.*) ;;
+*) die "could not log in to Infisical with INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET. Nothing was changed." ;;
+esac
+
+umask 077
+INFISICAL_TOKEN=$token docker run --rm -i --network container:infisical -e INFISICAL_TOKEN --entrypoint sh "$cli" \
+	-c 'cat >/tmp/env.tmpl && exec infisical export --template /tmp/env.tmpl --domain http://127.0.0.1:8080 --silent' \
+	<config/env.tmpl >"$next" ||
+	die "could not write $env_file from Infisical. Nothing was changed."
+if [ ! -s "$next" ] || grep -qv '^[A-Za-z_][A-Za-z0-9_]*=".*"$' "$next"; then
+	die "Infisical gave a $env_file that compose could not read. Nothing was changed."
+fi
+
+services=$(COMPOSE_ENV_FILES=$next docker compose config --services) ||
+	die "compose refuses the $env_file in Infisical. Put it right in Infisical, and run bin/up again. Nothing was changed."
+for kept in postgres:postgres-18 archivist:archivist infisical:infisical; do
+	echo "$services" | grep -qx "${kept#*:}" ||
+		die "COMPOSE_FILE in Infisical leaves out compose/${kept%%:*}.yml. Postgres, the archivist and Infisical stay on: without Infisical, bin/up could not run again, and without the archivist, a lost host loses every line. Put it back in COMPOSE_FILE, in Infisical. Nothing was changed."
+done
+
+if cmp -s "$next" "$env_file"; then
+	rm "$next"
+else
+	mv "$next" "$env_file"
+fi
+chmod 600 "$env_file"
+
+if [ -n "$rebuild" ] && echo "$services" | grep -qx clickhouse; then
+	docker compose up --detach --wait --wait-timeout 120 clickhouse clickhouse-dumper ||
+		die "ClickHouse did not start."
+	held=$(held_by_clickhouse) || die "cannot reach clickhouse."
+	[ "$held" != 0 ] || bin/rebuild --clickhouse ||
+		die "bin/rebuild --clickhouse stopped, and says why above. If ClickHouse held no data before, run bin/up: it starts ClickHouse empty."
+fi
+
+docker compose up --detach --remove-orphans
