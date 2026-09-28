@@ -231,11 +231,20 @@ bin/remove-database --postgres myapp
 Each names its datastore, `--postgres` or `--clickhouse`: one of them, always, as `bin/restore`
 and `bin/rebuild` do. Without one, or with both, it is refused and changes nothing.
 
-**Before a product with a database first starts**, make its database, and put the line the
-helper prints into `.env`: on a host you keep, into Infisical. Compose refuses a product whose variable is missing, so the product
-goes into `COMPOSE_FILE` after its database is made.
+**No helper writes into Infisical.** These three never reach it at all. Each prints every line
+it makes once, and you put it where it goes. A helper cannot tell a product's database from a
+consumer's, so it prints both lines, and you take the one you need:
 
-| Product | Run | Paste |
+- **A consumer's DSN** goes to the consumer's admin, for the consumer's own `.env`.
+- **A product's line**, such as `METABASE_DB_PASSWORD`, goes in Infisical, in the project
+  `userland`, environment `prod`. On a host without Infisical, it goes in `.env` instead. That
+  is *Trying it out*, and the first host before Infisical runs.
+
+**Before a product with a database first starts**, make its database, and put its line where
+it goes. Compose refuses a product whose variable is missing, so the product goes into
+`COMPOSE_FILE` after its database is made.
+
+| Product | Run | Line |
 |---|---|---|
 | metabase | `bin/add-database --postgres metabase` | `METABASE_DB_PASSWORD` |
 | n8n | `bin/add-database --postgres n8n`, then the one line under *n8n* | `N8N_DB_PASSWORD` |
@@ -285,9 +294,10 @@ to ClickHouse and are refused.
 
 ### A new password
 
-**`bin/new-password --postgres NAME`** gives one user a new random password, and prints the
-lines to paste, as `bin/add-database` does. Then run `docker compose up -d`: compose restarts
-every container whose line changed.
+**`bin/new-password --postgres NAME`** gives one user a new random password, and prints its
+lines once, as `bin/add-database` does. Put a product's line in Infisical and run `bin/up`, or,
+on a host without Infisical, in `.env` and run `docker compose up -d`. Either way, compose
+restarts every container whose line changed.
 
 - `NAME` is a database's user, PostgREST's authenticator `NAME_authenticator`, or
   `pgbouncer_auth`. With `--clickhouse`, it is a database's user on ClickHouse. With
@@ -296,6 +306,7 @@ every container whose line changed.
   with the new line.
 - For `pgbouncer_auth`, the line is `PGBOUNCER_AUTH_PASSWORD`. Until `up` recreates both doors,
   they may refuse new logins. `postgres-18` is recreated too, because it holds the same line.
+  It is a recovery key, so change your copy off the host too.
 - **The superusers are changed by hand.** For Postgres, set the new password on Postgres, then
   change `POSTGRES_PASSWORD` in `.env` and run `up`. pgadmin keeps its own saved copy, so
   change it there too:
@@ -312,7 +323,9 @@ every container whose line changed.
 **`bin/remove-database --postgres NAME`** drops the database `NAME`, its user, and PostgREST's
 two roles, whichever of them exist. With `--clickhouse`, it drops the database and its user on
 ClickHouse. It names what it will drop, and drops it only if you type the name. Every row in it
-is lost. A product's database is dropped the same way, once the product is switched off.
+is lost. A product's database is dropped the same way, once the product is switched off. Then
+it says to delete the product's line, `NAME_DB_PASSWORD` or `NAME_CLICKHOUSE_PASSWORD`, from
+Infisical, or from `.env` on a host without Infisical.
 
 - On Postgres the drop is `WITH (FORCE)`, because the doors keep pooled connections open to
   the database.
@@ -1373,18 +1386,19 @@ asserts:
 
 - the doors look passwords up as `pgbouncer_auth`, which is no superuser and inherits nothing;
 - a database added is reached with the printed DSN, through the door it names, as its own user;
-- the printed `NAME_DB_PASSWORD` logs in as the user, for a product's database as for any other;
+- the printed `NAME_DB_PASSWORD` logs in as the user, for a product's database as for any other,
+  and the helper says it goes in Infisical, or in `.env` on a host without Infisical;
 - a database's user reaches no other database, and `vector` is installed;
 - `--api` installs the recipe, and PostgREST's DSN names the session door;
 - adding a name twice, or a name with roles left behind, is refused and changes nothing;
 - a bad name is refused: empty, with a hyphen or a capital, a leading digit, too long, a quote;
 - remove drops nothing unless the name is typed;
-- remove drops the database while both doors hold it, its user and both roles, and the name can be
-  added again;
+- remove drops the database while both doors hold it, its user and both roles, says to delete a
+  product's line, and the name can be added again;
 - a new password logs in through the door, and the old one no longer does, for a database's user
   and for PostgREST's authenticator;
 - after `bin/new-password --postgres pgbouncer_auth` and an `up` with the printed line, both
-  doors let users in;
+  doors let users in, and the line is named a recovery key;
 - new-password refuses the superuser, a user without its database, an anon role and a bad name;
 - each helper names its datastore, one of the two, and without one, or with both, changes
   nothing;
@@ -1395,13 +1409,14 @@ asserts:
 
 `test/clickhouse.bats` starts the real `clickhouse` the same way, and asserts:
 
-- a database added logs in with the printed DSN, and its user creates, writes, updates and reads
-  a table, and reads the `system` tables langfuse reads;
+- a database added logs in with the printed DSN, its password line is for Infisical or `.env`,
+  and its user creates, writes, updates and reads a table, and reads the `system` tables langfuse
+  reads;
 - that user reads no other database, and makes no database and no user;
 - a name twice, a user left behind, `--session`, `--api` and a bad name are refused, and change
   nothing;
 - remove drops nothing without `--clickhouse`, or unless the name is typed, then drops the
-  database and its user, and the name can be added again;
+  database and its user, says to delete a product's line, and the name can be added again;
 - a new password logs in, and the old one no longer does; `default` is refused;
 - a run of `clickhouse-dumper` archives the users and every database, and a database added
   later is archived without being named.

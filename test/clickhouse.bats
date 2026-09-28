@@ -39,12 +39,17 @@ newest_run() {
 	in_dumper ls /backups/clickhouse | grep -x '[0-9]\{8\}T[0-9]\{6\}Z' | tail -n 1
 }
 
-@test "a database added on ClickHouse logs in with the printed DSN, and its user works in it" {
+@test "a database added on ClickHouse logs in with the printed DSN, its password line is for Infisical or .env, and its user works in it" {
 	run --separate-stderr bin/add-database --clickhouse events
 	[ "$status" -eq 0 ]
 	url=$(printed CLICKHOUSE_URL)
 	password=$(printed EVENTS_CLICKHOUSE_PASSWORD)
 	[ "${#password}" -eq 32 ]
+	[[ "$output" == *"For a product, put this line in Infisical, in the project userland, environment prod.
+On a host without Infisical, put it in .env instead:
+
+  EVENTS_CLICKHOUSE_PASSWORD=$password"* ]]
+	[[ "$output" != *"userland's .env"* ]]
 	[ "$url" = "clickhouse://events:$password@clickhouse:9000/events" ]
 	run client "$url" "SELECT currentUser(), currentDatabase()"
 	[ "$status" -eq 0 ]
@@ -112,7 +117,7 @@ newest_run() {
 	[ "$output" = "1" ]
 }
 
-@test "remove on ClickHouse drops nothing without --clickhouse or unless the name is typed, then drops the database and its user, and the name can be added again" {
+@test "remove on ClickHouse drops nothing without --clickhouse or unless the name is typed, then drops the database and its user, says to delete a product's line, and the name can be added again" {
 	run --separate-stderr bin/add-database --clickhouse gone
 	[ "$status" -eq 0 ]
 	url=$(printed CLICKHOUSE_URL)
@@ -131,7 +136,10 @@ newest_run() {
 	run --separate-stderr bin/remove-database --clickhouse gone <<<"gone"
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Dropped the database gone on ClickHouse."* ]]
-	[[ "$output" == *"Dropped the user gone on ClickHouse."* ]]
+	[[ "$output" == *"Dropped the user gone on ClickHouse.
+
+For a product, delete GONE_CLICKHOUSE_PASSWORD from Infisical, in the project userland, environment prod.
+On a host without Infisical, delete it from .env instead." ]]
 	run admin "SELECT count() FROM system.databases WHERE name = 'gone'"
 	[ "$output" = "0" ]
 	run admin "SELECT count() FROM system.users WHERE name = 'gone'"
@@ -167,6 +175,10 @@ newest_run() {
 	new=$(printed CLICKHOUSE_URL)
 	password=$(printed TURN_CLICKHOUSE_PASSWORD)
 	[ "${#password}" -eq 32 ]
+	[[ "$output" == *"For a product, put this line in Infisical, in the project userland, environment prod, and run bin/up.
+On a host without Infisical, put it in .env instead, and run docker compose up -d:
+
+  TURN_CLICKHOUSE_PASSWORD=$password"* ]]
 	[ "$new" = "clickhouse://turn:$password@clickhouse:9000/turn" ]
 	run client "$new" "SELECT currentUser()"
 	[ "$status" -eq 0 ]
