@@ -68,7 +68,6 @@ docker exec "$dumper" true >/dev/null 2>&1 ||
 	die "cannot reach $dumper. Put compose/$datastore.yml in COMPOSE_FILE, and run docker compose up -d."
 
 if [ "$datastore" = postgres ]; then
-	flag=
 	file=/postgres/databases/$name.dump
 	count_of() {
 		docker exec postgres-18 psql -v ON_ERROR_STOP=1 -X -tA -U postgres -d postgres -c "SELECT count(*) FROM $1 WHERE $2 = '$3'"
@@ -78,7 +77,6 @@ if [ "$datastore" = postgres ]; then
 	users=pg_roles
 	user_column=rolname
 else
-	flag="--clickhouse "
 	file=/clickhouse/databases/$name.tar
 	count_of() {
 		docker exec clickhouse clickhouse-client --query "SELECT count() FROM $1 WHERE $2 = '$3'"
@@ -94,9 +92,9 @@ count_of "$databases" "$database_column" "$name" >/dev/null 2>&1 ||
 
 if [ -n "$as" ]; then
 	[ "$(count_of "$databases" "$database_column" "$other")" = 0 ] ||
-		die "the database $other already exists. Nothing was changed. Name another, or bin/remove-database $flag$other first."
+		die "the database $other already exists. Nothing was changed. Name another, or bin/remove-database --$datastore $other first."
 elif [ "$(count_of "$users" "$user_column" "$name")" = 0 ]; then
-	die "there is no user $name, so its database cannot come back as it was. Nothing was changed. Make it with bin/add-database $flag$name, which prints a new password, then run this again."
+	die "there is no user $name, so its database cannot come back as it was. Nothing was changed. Make it with bin/add-database --$datastore $name, which prints a new password, then run this again."
 fi
 
 cleanup() {
@@ -114,9 +112,9 @@ fi
 
 if [ -n "$as" ]; then
 	docker exec "$dumper" dumper restore "$name" "$other" ||
-		die "the archive of $name did not come back as $other. bin/remove-database $flag$other clears what is left."
+		die "the archive of $name did not come back as $other. bin/remove-database --$datastore $other clears what is left."
 	echo "The archive of $name is restored as $other. Nothing live was touched."
-	echo "bin/remove-database $flag$other drops it when you are done."
+	echo "bin/remove-database --$datastore $other drops it when you are done."
 	exit 0
 fi
 

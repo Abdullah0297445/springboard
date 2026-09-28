@@ -120,7 +120,7 @@ docker compose up -d --remove-orphans
 A product with a database needs it made first, under *Provisioning*. For metabase:
 
 ```sh
-bin/add-database metabase
+bin/add-database --postgres metabase
 ```
 
 It prints `METABASE_DB_PASSWORD=...`. Paste that line into `.env`, add metabase to
@@ -220,13 +220,16 @@ Three helpers in `bin/` do it. They run on the host, from the root of the repo. 
 docker, and `postgres-18` or `clickhouse` up.
 
 ```sh
-bin/add-database myapp
-bin/add-database --session myapp
-bin/add-database --api myapp
+bin/add-database --postgres myapp
+bin/add-database --postgres --session myapp
+bin/add-database --postgres --api myapp
 bin/add-database --clickhouse myapp
-bin/new-password myapp
-bin/remove-database myapp
+bin/new-password --postgres myapp
+bin/remove-database --postgres myapp
 ```
+
+Each names its datastore, `--postgres` or `--clickhouse`: one of them, always, as `bin/restore`
+and `bin/rebuild` do. Without one, or with both, it is refused and changes nothing.
 
 **Before a product with a database first starts**, make its database, and put the line the
 helper prints into `.env`: on a host you keep, into Infisical. Compose refuses a product whose variable is missing, so the product
@@ -234,17 +237,17 @@ goes into `COMPOSE_FILE` after its database is made.
 
 | Product | Run | Paste |
 |---|---|---|
-| metabase | `bin/add-database metabase` | `METABASE_DB_PASSWORD` |
-| n8n | `bin/add-database n8n`, then the one line under *n8n* | `N8N_DB_PASSWORD` |
-| langfuse | `bin/add-database langfuse` and `bin/add-database --clickhouse langfuse` | `LANGFUSE_DB_PASSWORD` and `LANGFUSE_CLICKHOUSE_PASSWORD` |
-| twenty | `bin/add-database twenty` | `TWENTY_DB_PASSWORD` |
-| infisical | `bin/add-database infisical` | `INFISICAL_DB_PASSWORD` |
+| metabase | `bin/add-database --postgres metabase` | `METABASE_DB_PASSWORD` |
+| n8n | `bin/add-database --postgres n8n`, then the one line under *n8n* | `N8N_DB_PASSWORD` |
+| langfuse | `bin/add-database --postgres langfuse` and `bin/add-database --clickhouse langfuse` | `LANGFUSE_DB_PASSWORD` and `LANGFUSE_CLICKHOUSE_PASSWORD` |
+| twenty | `bin/add-database --postgres twenty` | `TWENTY_DB_PASSWORD` |
+| infisical | `bin/add-database --postgres infisical` | `INFISICAL_DB_PASSWORD` |
 
 ### Making a database
 
-**`bin/add-database NAME`** makes the database `NAME` on Postgres, and a user of the same name
-that owns it. It prints two lines, once: a DSN for a consumer, and `NAME_DB_PASSWORD` for a
-product, in capitals.
+**`bin/add-database --postgres NAME`** makes the database `NAME` on Postgres, and a user of the
+same name that owns it. It prints two lines, once: a DSN for a consumer, and `NAME_DB_PASSWORD`
+for a product, in capitals.
 
 - `CONNECT` on the database is revoked from everyone else, and so is `CREATE` on `public`.
 - The `vector` extension is installed. It is not a trusted extension, so the database's user
@@ -252,8 +255,8 @@ product, in capitals.
 - The DSN names the transaction door. With `--session`, it names the session door.
 - A name is `a-z`, `0-9` and `_`, starts with a letter, and is at most 63 characters.
 - A name that exists is refused, and nothing is changed. So is a name with a role left from an
-  earlier database: `bin/remove-database NAME` drops it. So a consumer can never take a
-  product's name once the product has it, nor a product a consumer's.
+  earlier database: `bin/remove-database --postgres NAME` drops it. So a consumer can never
+  take a product's name once the product has it, nor a product a consumer's.
 - Postgres keeps no copy of the password you can read back. A consumer's DSN goes to the
   consumer's admin, for the consumer's own `.env`.
 
@@ -282,9 +285,9 @@ to ClickHouse and are refused.
 
 ### A new password
 
-**`bin/new-password NAME`** gives one user a new random password, and prints the lines to
-paste, as `bin/add-database` does. Then run `docker compose up -d`: compose restarts every
-container whose line changed.
+**`bin/new-password --postgres NAME`** gives one user a new random password, and prints the
+lines to paste, as `bin/add-database` does. Then run `docker compose up -d`: compose restarts
+every container whose line changed.
 
 - `NAME` is a database's user, PostgREST's authenticator `NAME_authenticator`, or
   `pgbouncer_auth`. With `--clickhouse`, it is a database's user on ClickHouse. With
@@ -306,8 +309,8 @@ container whose line changed.
 
 ### Dropping a database
 
-**`bin/remove-database NAME`** drops the database `NAME`, its user, and PostgREST's two roles,
-whichever of them exist. With `--clickhouse`, it drops the database and its user on
+**`bin/remove-database --postgres NAME`** drops the database `NAME`, its user, and PostgREST's
+two roles, whichever of them exist. With `--clickhouse`, it drops the database and its user on
 ClickHouse. It names what it will drop, and drops it only if you type the name. Every row in it
 is lost. A product's database is dropped the same way, once the product is switched off.
 
@@ -328,8 +331,8 @@ look passwords up with, and its lookup function, `public.pgbouncer_get_auth`, in
 - `pgbouncer_auth` is no superuser, holds no table rights, and inherits nothing. It reaches no
   database a product or a consumer owns, since `CONNECT` on each is revoked from everyone else.
 - Its password is `PGBOUNCER_AUTH_PASSWORD`, and Postgres reads it at that first start only.
-  To change it later, use `bin/new-password pgbouncer_auth`. Changing the line in `.env` alone
-  breaks both doors: they then fail every login.
+  To change it later, use `bin/new-password --postgres pgbouncer_auth`. Changing the line in
+  `.env` alone breaks both doors: they then fail every login.
 
 ## Object store
 
@@ -600,8 +603,8 @@ touch it. For the same reason **the schema stays `public`**: any other name is s
 `SET search_path` the door discards just the same, and n8n would read and write `public`
 regardless. `public` is n8n's default, so nothing names it.
 
-**Put the time limit on the `n8n` user once**, after `bin/add-database n8n`. The archive of the
-globals keeps it, so a restore brings it back:
+**Put the time limit on the `n8n` user once**, after `bin/add-database --postgres n8n`. The
+archive of the globals keeps it, so a restore brings it back:
 
 ```sh
 docker exec postgres-18 psql -U postgres -c "ALTER ROLE n8n SET statement_timeout = '5min'"
@@ -1104,7 +1107,8 @@ bin/restore --postgres shop --snapshot 1a2b3c4d
 - `--postgres` or `--clickhouse` is required: one of them, always.
 - `--as OTHER` restores into a new database, OTHER, and touches nothing live. This is the
   drill. On Postgres the new database belongs to the superuser, because the archive's owner
-  and grants are left out. `bin/remove-database OTHER` drops it when you are done.
+  and grants are left out. `bin/remove-database` drops it when you are done, told the same
+  datastore.
 - Without `--as`, the live database is dropped, made again and restored, once you type its
   name. On Postgres it comes back with its owner, its grants and its settings. On ClickHouse
   its user's grants were never dropped. Every change since the archive is lost, so stop
@@ -1169,8 +1173,9 @@ secret in Infisical is lost. Started with another key, Infisical says so in
      `INFISICAL_AUTH_SECRET`, each from `bin/random-secret`.
 3. Make the repository, under *The archivist*, with `docker compose run --rm archivist init`.
    Then run `docker compose up -d`.
-4. Run `bin/add-database infisical`, and add the `INFISICAL_DB_PASSWORD` line it prints to
-   `.env`. Add `compose/infisical.yml` to `COMPOSE_FILE`, and run `docker compose up -d`.
+4. Run `bin/add-database --postgres infisical`, and add the `INFISICAL_DB_PASSWORD` line it
+   prints to `.env`. Add `compose/infisical.yml` to `COMPOSE_FILE`, and run
+   `docker compose up -d`.
 5. **Make the first admin at once.** Open `infisical.${DOMAIN}` and sign up. The first account
    becomes the admin of the whole of Infisical, and Infisical then closes sign-up by itself.
    **Until you do, whoever reaches it first becomes the admin.** In public, a new hostname is
@@ -1369,9 +1374,11 @@ compose makes of the files, `docker compose config`, and assert:
   added again;
 - a new password logs in through the door, and the old one no longer does, for a database's user
   and for PostgREST's authenticator;
-- after `bin/new-password pgbouncer_auth` and an `up` with the printed line, both doors let users
-  in;
+- after `bin/new-password --postgres pgbouncer_auth` and an `up` with the printed line, both
+  doors let users in;
 - new-password refuses the superuser, a user without its database, an anon role and a bad name;
+- each helper names its datastore, one of the two, and without one, or with both, changes
+  nothing;
 - a run of `postgres-dumper` archives the globals and every database, and a database added
   later is archived without being named;
 - a run keeps its temporary name until every database is archived;
@@ -1384,8 +1391,8 @@ compose makes of the files, `docker compose config`, and assert:
 - that user reads no other database, and makes no database and no user;
 - a name twice, a user left behind, `--session`, `--api` and a bad name are refused, and change
   nothing;
-- remove drops nothing unless the name is typed, then drops the database and its user, and the
-  name can be added again;
+- remove drops nothing without `--clickhouse`, or unless the name is typed, then drops the
+  database and its user, and the name can be added again;
 - a new password logs in, and the old one no longer does; `default` is refused;
 - a run of `clickhouse-dumper` archives the users and every database, and a database added
   later is archived without being named.
@@ -1427,7 +1434,7 @@ datastore's volume and starting it again, empty, while the bucket stays. It asse
   says so.
 
 `test/infisical.bats` starts Postgres, the transaction door, traefik and Infisical, on a
-database made by `bin/add-database infisical`, and asserts:
+database made by `bin/add-database --postgres infisical`, and asserts:
 
 - Infisical comes up healthy, and traefik answers for `infisical.localhost`;
 - `bootstrap`, from Infisical's CLI image, makes the first admin without a browser, and sign-up

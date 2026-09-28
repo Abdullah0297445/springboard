@@ -101,13 +101,14 @@ archive_now() {
 }
 
 @test "a Postgres database comes back under another name, and nothing live is touched" {
-	run --separate-stderr bin/add-database shop
+	run --separate-stderr bin/add-database --postgres shop
 	[ "$status" -eq 0 ]
 	superuser shop "CREATE TABLE orders (id int); INSERT INTO orders VALUES (1)"
 	archive_now postgres
 	superuser shop "INSERT INTO orders VALUES (2)"
 	run --separate-stderr bin/restore --postgres shop --as drill </dev/null
 	[ "$status" -eq 0 ]
+	[[ "$output" == *"bin/remove-database --postgres drill drops it"* ]]
 	[ "$(superuser drill "SELECT string_agg(id::text, ' ') FROM orders")" = "1" ]
 	[ "$(superuser shop "SELECT string_agg(id::text, ' ' ORDER BY id) FROM orders")" = "1 2" ]
 	run --separate-stderr bin/restore --postgres shop --as drill </dev/null
@@ -116,7 +117,7 @@ archive_now() {
 }
 
 @test "a Postgres database is replaced by its archive only once its name is typed, and its user still reaches it" {
-	run --separate-stderr bin/add-database --session till
+	run --separate-stderr bin/add-database --postgres --session till
 	[ "$status" -eq 0 ]
 	url=$(printed DATABASE_URL)
 	superuser till "CREATE TABLE sales (id int); INSERT INTO sales VALUES (1)"
@@ -136,7 +137,7 @@ archive_now() {
 }
 
 @test "an older archive is picked by its snapshot" {
-	run --separate-stderr bin/add-database ages
+	run --separate-stderr bin/add-database --postgres ages
 	[ "$status" -eq 0 ]
 	superuser ages "CREATE TABLE era (n int); INSERT INTO era VALUES (1)"
 	archive_now postgres
@@ -150,14 +151,14 @@ archive_now() {
 }
 
 @test "a Postgres database whose user is gone is refused, and nothing is changed" {
-	run --separate-stderr bin/add-database lost
+	run --separate-stderr bin/add-database --postgres lost
 	[ "$status" -eq 0 ]
 	archive_now postgres
-	run --separate-stderr bin/remove-database lost <<<"lost"
+	run --separate-stderr bin/remove-database --postgres lost <<<"lost"
 	[ "$status" -eq 0 ]
 	run --separate-stderr bin/restore --postgres lost <<<"lost"
 	[ "$status" -ne 0 ]
-	[[ "$stderr" == *"bin/add-database lost"* ]]
+	[[ "$stderr" == *"bin/add-database --postgres lost"* ]]
 	[ -z "$(superuser postgres "SELECT datname FROM pg_database WHERE datname = 'lost'")" ]
 	run --separate-stderr bin/restore --postgres never --as drill_never </dev/null
 	[ "$status" -ne 0 ]
@@ -173,6 +174,7 @@ archive_now() {
 	admin "INSERT INTO events.hits VALUES (2)"
 	run --separate-stderr bin/restore --clickhouse events --as drill </dev/null
 	[ "$status" -eq 0 ]
+	[[ "$output" == *"bin/remove-database --clickhouse drill drops it"* ]]
 	[ "$(admin "SELECT groupArray(id) FROM drill.hits")" = "[1]" ]
 	[ "$(admin "SELECT count() FROM events.hits")" = "2" ]
 }

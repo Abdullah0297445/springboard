@@ -2,19 +2,22 @@
 set -eu
 export LC_ALL=C
 
-usage="usage: bin/remove-database NAME, or bin/remove-database --clickhouse NAME"
+usage="usage: bin/remove-database --postgres|--clickhouse NAME"
 
 die() {
 	echo "remove-database: $1" >&2
 	exit 1
 }
 
-clickhouse=
+datastore=
 name=
 count=0
 for argument in "$@"; do
 	case $argument in
-	--clickhouse) clickhouse=1 ;;
+	--postgres | --clickhouse)
+		[ -z "$datastore" ] || die "name one datastore, --postgres or --clickhouse, not both. $usage"
+		datastore=${argument#--}
+		;;
 	-*) die "$argument is not an option. $usage" ;;
 	*)
 		name=$argument
@@ -22,6 +25,7 @@ for argument in "$@"; do
 		;;
 	esac
 done
+[ -n "$datastore" ] || die "name the datastore, --postgres or --clickhouse. $usage"
 [ "$count" -eq 1 ] || die "$usage"
 
 case $name in
@@ -40,7 +44,7 @@ confirm() {
 	fi
 }
 
-if [ -n "$clickhouse" ]; then
+if [ "$datastore" = clickhouse ]; then
 	case $name in
 	default | system | information_schema) die "'$name' belongs to ClickHouse." ;;
 	esac

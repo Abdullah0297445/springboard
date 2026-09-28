@@ -112,12 +112,15 @@ newest_run() {
 	[ "$output" = "1" ]
 }
 
-@test "remove on ClickHouse drops nothing unless the name is typed, then drops the database and its user, and the name can be added again" {
+@test "remove on ClickHouse drops nothing without --clickhouse or unless the name is typed, then drops the database and its user, and the name can be added again" {
 	run --separate-stderr bin/add-database --clickhouse gone
 	[ "$status" -eq 0 ]
 	url=$(printed CLICKHOUSE_URL)
 	run client "$url" "CREATE TABLE t (id UInt8) ENGINE = MergeTree ORDER BY id"
 	[ "$status" -eq 0 ]
+	run --separate-stderr bin/remove-database gone <<<"gone"
+	[ "$status" -eq 1 ]
+	[[ "$stderr" == *"name the datastore, --postgres or --clickhouse."* ]]
 	run --separate-stderr bin/remove-database --clickhouse gone <<<"y"
 	[ "$status" -eq 1 ]
 	[[ "$output" == *"This drops the database gone on ClickHouse."* ]]
