@@ -2,23 +2,26 @@
 set -eu
 export LC_ALL=C
 
-usage="usage: bin/add-database [--session] [--api] NAME, or bin/add-database --clickhouse NAME"
+usage="usage: bin/add-database --postgres [--session] [--api] NAME, or bin/add-database --clickhouse NAME"
 
 die() {
 	echo "add-database: $1" >&2
 	exit 1
 }
 
+datastore=
 session=
 api=
-clickhouse=
 name=
 count=0
 for argument in "$@"; do
 	case $argument in
+	--postgres | --clickhouse)
+		[ -z "$datastore" ] || die "name one datastore, --postgres or --clickhouse, not both. $usage"
+		datastore=${argument#--}
+		;;
 	--session) session=1 ;;
 	--api) api=1 ;;
-	--clickhouse) clickhouse=1 ;;
 	-*) die "$argument is not an option. $usage" ;;
 	*)
 		name=$argument
@@ -26,6 +29,7 @@ for argument in "$@"; do
 		;;
 	esac
 done
+[ -n "$datastore" ] || die "name the datastore, --postgres or --clickhouse. $usage"
 [ "$count" -eq 1 ] || die "$usage"
 
 case $name in
@@ -38,7 +42,7 @@ new_password() {
 	od -An -tx1 -N16 /dev/urandom | tr -d ' \n'
 }
 
-if [ -n "$clickhouse" ]; then
+if [ "$datastore" = clickhouse ]; then
 	[ -z "$session$api" ] || die "--session and --api are for Postgres, and --clickhouse takes neither. $usage"
 	case $name in
 	default | system | information_schema) die "'$name' belongs to ClickHouse." ;;
@@ -114,7 +118,7 @@ query "SELECT 1" >/dev/null 2>&1 ||
 database=$(query "SELECT 1 FROM pg_database WHERE datname = '$name'")
 [ -z "$database" ] || die "the database $name already exists. Nothing was changed."
 left=$(query "SELECT string_agg(rolname, ', ' ORDER BY rolname) FROM pg_roles WHERE rolname IN ('$name', '$authenticator', '$anon')")
-[ -z "$left" ] || die "there is no database $name, but these remain from an earlier one: $left. Nothing was changed. bin/remove-database $name drops them."
+[ -z "$left" ] || die "there is no database $name, but these remain from an earlier one: $left. Nothing was changed. bin/remove-database --postgres $name drops them."
 
 password=$(new_password)
 [ "${#password}" -eq 32 ] || die "could not read 16 bytes from /dev/urandom."

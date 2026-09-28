@@ -24,7 +24,7 @@ EOF
 	compose down --volumes --remove-orphans
 	compose up --detach --wait postgres-18 pgbouncer-transaction
 	local made
-	made=$(bin/add-database infisical)
+	made=$(bin/add-database --postgres infisical)
 	echo "INFISICAL_DB_PASSWORD=$(sed -n 's/^  INFISICAL_DB_PASSWORD=//p' <<<"$made")" >>"$env_file"
 	export files="$files:compose/infisical.yml:$stand_in"
 }

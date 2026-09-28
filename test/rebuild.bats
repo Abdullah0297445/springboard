@@ -110,10 +110,10 @@ new_clickhouse() {
 }
 
 @test "on a new host, Postgres comes back whole: every database with its rows, and every user with its old password" {
-	run --separate-stderr bin/add-database shop
+	run --separate-stderr bin/add-database --postgres shop
 	[ "$status" -eq 0 ]
 	shop=$(printed DATABASE_URL)
-	run --separate-stderr bin/add-database --session till
+	run --separate-stderr bin/add-database --postgres --session till
 	[ "$status" -eq 0 ]
 	till=$(printed DATABASE_URL)
 	connect "$shop" "CREATE TABLE orders (id int); INSERT INTO orders VALUES (1)"
@@ -130,7 +130,7 @@ new_clickhouse() {
 }
 
 @test "a Postgres that is not empty is refused, and nothing is changed" {
-	run --separate-stderr bin/add-database kept
+	run --separate-stderr bin/add-database --postgres kept
 	[ "$status" -eq 0 ]
 	kept=$(printed DATABASE_URL)
 	connect "$kept" "CREATE TABLE notes (id int); INSERT INTO notes VALUES (1)"
@@ -144,7 +144,7 @@ new_clickhouse() {
 }
 
 @test "the newest run is taken, a newest run with no database is refused, and --run takes an older one" {
-	run --separate-stderr bin/add-database ages
+	run --separate-stderr bin/add-database --postgres ages
 	[ "$status" -eq 0 ]
 	ages=$(printed DATABASE_URL)
 	connect "$ages" "CREATE TABLE era (n int); INSERT INTO era VALUES (1)"
@@ -205,7 +205,7 @@ new_clickhouse() {
 }
 
 @test "a password in .env that is not the archive's stops the rebuild right after the globals, and says so" {
-	run --separate-stderr bin/add-database guard
+	run --separate-stderr bin/add-database --postgres guard
 	[ "$status" -eq 0 ]
 	archive_now postgres
 	POSTGRES_PASSWORD=mistyped new_postgres

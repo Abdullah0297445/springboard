@@ -74,7 +74,7 @@ EOF
 	docker compose run --rm archivist init
 	docker compose up --detach --wait --wait-timeout 120 postgres-18 pgbouncer-transaction
 	local made
-	made=$(bin/add-database infisical)
+	made=$(bin/add-database --postgres infisical)
 	echo "INFISICAL_DB_PASSWORD=$(sed -n 's/^  INFISICAL_DB_PASSWORD=//p' <<<"$made")" >>"$COMPOSE_ENV_FILES"
 	sed -i "s|^COMPOSE_FILE=.*|COMPOSE_FILE=$floor:compose/infisical.yml|" "$COMPOSE_ENV_FILES"
 	docker compose up --detach --wait --wait-timeout 300 infisical
@@ -247,7 +247,7 @@ running" ]
 }
 
 @test "an empty Postgres is refused, and names --rebuild, and nothing is changed" {
-	run --separate-stderr bin/add-database shop
+	run --separate-stderr bin/add-database --postgres shop
 	printed DATABASE_URL >"$BATS_FILE_TMPDIR/shop"
 	connect "$(cat "$BATS_FILE_TMPDIR/shop")" "CREATE TABLE orders (id int); INSERT INTO orders VALUES (1)"
 	run --separate-stderr bin/add-database --clickhouse events
