@@ -997,6 +997,10 @@ is not yet a backup.
 - It writes the time of its last finished run into `last-run`, in its folder. After a restart,
   a run that fell due while it was down runs at once, and only once. On its very first start it
   waits for the next slot.
+- It looks at the clock at least once a minute. `sleep` does not count the time a host is
+  suspended, as a laptop is every night and a server's VM may be, so a dumper never sleeps
+  longer than that. A slot that fell due while the host was suspended runs within a minute of
+  the host waking, and only once.
 - A slot that finds its datastore down tries again every minute, and runs as soon as it can.
 - Every run archives every database it finds, so **no database is ever named**: one is
   archived from the first run after it exists, and one that is dropped stops appearing. Every
@@ -1361,8 +1365,8 @@ The tests are [bats](https://github.com/bats-core/bats-core) files. They are spl
 - **The quick check** is the files in `test/`: `compose.bats`, `postgres.bats`,
   `clickhouse.bats` and `random-secret.bats`. It takes about three minutes. It runs on every
   pull request and every push to `main`, with ShellCheck.
-- **The end-to-end run** is the files in `test/e2e/`: `archivist.bats`, `restore.bats`,
-  `rebuild.bats`, `infisical.bats` and `up.bats`. It takes about half an hour. It runs nightly
+- **The end-to-end run** is the files in `test/e2e/`: `archivist.bats`, `dumper.bats`,
+  `restore.bats`, `rebuild.bats`, `infisical.bats` and `up.bats`. It takes about half an hour. It runs nightly
   on `main`, and by hand. A pull request never waits for it.
 
 `test/compose.bats` reads what compose makes of the files, `docker compose config`, and
@@ -1438,6 +1442,14 @@ folder by hand, as a dumper would. It asserts:
 - an archive whose upload fails stays in the folder, and the archivist is unhealthy until an
   upload succeeds.
 
+`test/e2e/dumper.bats` starts Postgres and its dumper, with a stand-in for `date` that puts the
+dumper's clock ahead by as many seconds as the test says. When a suspended host wakes, its clock
+jumps ahead in the same way, and `sleep` does not notice. It asserts:
+
+- with the clock an hour short of a slot, nothing runs;
+- after the clock jumps past the slot, the slot runs within a minute;
+- the slot runs only once.
+
 `test/e2e/restore.bats` starts Postgres, ClickHouse, both dumpers and the archivist, with moto,
 and asserts, on Postgres and on ClickHouse:
 
@@ -1512,7 +1524,7 @@ A change needs only the files that cover it. Name them in place of the folder, a
 ShellCheck reads every script and test, in both folders, from docker too:
 
 ```sh
-docker run --rm --volume "$PWD":/mnt --workdir /mnt koalaman/shellcheck:stable scripts/* bin/* initdb/*.sh test/*.bats test/e2e/*.bats
+docker run --rm --volume "$PWD":/mnt --workdir /mnt koalaman/shellcheck:stable scripts/* bin/* initdb/*.sh test/*.bats test/e2e/*.bats test/e2e/stand-in/*
 ```
 
 In CI, ShellCheck and the quick check run on every pull request and every push to `main`
@@ -1526,7 +1538,7 @@ nightly on `main`, and by hand from the repo's Actions tab, or with `gh workflow
 |---|---|
 | `compose.yml` | traefik, always on, and always first in `COMPOSE_FILE`. |
 | `compose/` | One file per product, and `public.yml`, which turns traefik public. |
-| `test/` | The bats tests of the quick check. `test/e2e/` holds the end-to-end run's. |
+| `test/` | The bats tests of the quick check. `test/e2e/` holds the end-to-end run's, and `test/e2e/stand-in/` what they put in place of a real program. |
 | `scripts/` | Shell that runs inside a container: the archivist's loop and commands, its password command, and the dumper both datastores run. Nothing here runs on the host. |
 | `bin/` | Helpers that run on the host, in POSIX sh, needing only docker: `up`, `add-database`, `new-password`, `remove-database`, `restore`, `rebuild` and `random-secret`. |
 | `Dockerfile` | The archivist's image, the only one this repo builds: restic, and a reader for the secret store. |

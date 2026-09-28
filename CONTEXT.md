@@ -238,6 +238,11 @@ One pass of a dumper over its datastore: the globals and every database, archive
 and named by the time the pass started.
 _Avoid_: backup, snapshot, job, dump
 
+**Slot**:
+One of the times a dumper is due to run: every so many hours, counted from 00:00 UTC. A slot
+missed while the dumper was down, or its host suspended, runs once, as soon as it can.
+_Avoid_: tick, cron time, window
+
 **Rebuild**:
 Putting a whole datastore back on a new host from one run: its globals first, then every
 database. It fills only an empty datastore, so it can never reset the users of a live one.
