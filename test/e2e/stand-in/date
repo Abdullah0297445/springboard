@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+ahead=$(cat /tmp/ahead 2>/dev/null || echo 0)
+exec /usr/bin/date -d "@$(($(/usr/bin/date +%s) + ahead))" "$@"

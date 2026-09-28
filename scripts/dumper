@@ -218,8 +218,8 @@ serve() {
 		if [ "$last" -lt "$due" ]; then
 			run_slot "$due"
 		fi
-		next=$(($(last_slot) + interval))
-		sleep $((next - $(date +%s)))
+		left=$(($(last_slot) + interval - $(date +%s)))
+		sleep $((left < 60 ? left : 60))
 	done
 }
 
