@@ -391,11 +391,12 @@ Turn versioning on for it: *The archivist* says why.
 - **AWS.** Bucket, then user, then the inline policy above, then an access key. New buckets
   block public access, disable ACLs and encrypt at rest by default, so nothing else is set.
   Retention is a lifecycle rule, where a bucket allows one. **No rule of any kind on the
-  archivist's bucket**, not even a noncurrent-version expiration: the only versions that ever
-  appear there are the ones something else left, which are both the evidence and the way
-  back. AWS also recommends a rule that aborts incomplete multipart uploads after a few days;
-  that one is yours too, and it never fires for the archivist, whose objects are far below one
-  part.
+  archivist's bucket**, not even a noncurrent-version expiration. An older version outside
+  `locks/` is either restic sending an upload twice, or the evidence and the way back. Under
+  `locks/`, every restic command leaves one, under a delete marker. *The archivist* says how to
+  tell them apart, and how to remove the ones under `locks/` by hand. AWS also recommends a
+  rule that aborts incomplete multipart uploads after a few days; that one is yours too, and it
+  never fires for the archivist, whose objects are far below one part.
 - **Backblaze B2.** An application key restricted to the one bucket with `listFiles`,
   `readFiles` and `writeFiles`, adding `deleteFiles` only for langfuse's and twenty's.
   `writeFiles` without `deleteFiles` is the no-delete key. A B2 key carries one capability list
@@ -1087,14 +1088,61 @@ do `unlock --remove-all`, `rewrite` and `tag`: if you ever want them, restic's o
 separate, well-secured machine with a delete-capable key, never this host. And **set no
 lifecycle rule on this bucket**: see *Object store*.
 
-**Versioning guards against overwrite, not loss.** The archivist's key can put an object but
-not delete one, and a put overwrites. A host that has been broken into can therefore write
-garbage over any object under its own name, using the archivist's key, and restic sends nothing
-that would stop it. With versioning on, the original is still there as an older version and you
-put it back by hand with an identity of your own. Because restic never overwrites anything, **an
-older version in this bucket means something other than restic wrote there.** `restic check`
-will tell you the repository is damaged, because an object's contents no longer match its name,
-but it cannot repair what it does not have.
+**Versioning guards against overwrite, not loss.** Outside `locks/`, the archivist's key can put
+an object but not delete one, and a put overwrites. A host that has been broken into can
+therefore write garbage over any object under its own name, using the archivist's key, and
+restic sends nothing that would stop it. With versioning on, the original is still there as an
+older version and you put it back by hand with an identity of your own. restic itself never
+changes an object, because each is named after the hash of its own bytes. It does send one
+again when the answer to an upload is lost on the way back. That leaves an older version with
+the same bytes, and so the same ETag, as the one on top. So **outside `locks/`, an older version
+whose ETag differs from the current one means something other than restic wrote there.** One
+with the same ETag is an upload sent twice. `restic check` will tell you the repository is
+damaged, because an object's contents no longer match its name, but it cannot repair what it
+does not have.
+
+**Under `locks/`, older versions are restic's own, and they mean nothing.** Every restic command
+writes a lock there as it starts, and deletes it as it ends. In a versioned bucket, a delete
+keeps the lock as an older version, under a delete marker. So every command leaves one pair
+behind, and a long one a pair more for every five minutes it runs. The archivist runs one
+command per archive, so a run of ten databases leaves eleven pairs. Nothing removes them. A pair
+is about 220 bytes, so the space is nothing. The time may not be: restic lists `locks/` twice in
+every command, S3 steps over every delete marker there, and AWS warns that thousands of them can
+make a list time out.
+
+**If restic ever gets slow to start, remove them by hand.** Stop the archivist first. Then every
+lock under `locks/` is left over, so everything there can go, even a lock that a killed command
+never deleted. With the archivist running, it is not safe: a delete marker removed before its
+older version brings the old lock back as a current one. Make an access key of your own for
+this, with only this policy, and delete it afterwards:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["s3:ListBucketVersions"], "Resource": "arn:aws:s3:::BUCKET"},
+    {"Effect": "Allow", "Action": ["s3:DeleteObjectVersion"], "Resource": "arn:aws:s3:::BUCKET/locks/*"}
+  ]
+}
+```
+
+Export its two variables and `AWS_DEFAULT_REGION` in your shell. This removes every version and
+every delete marker under `locks/`, 500 at a time, and nothing else:
+
+```sh
+docker compose stop archivist
+s3api() {
+	docker run --rm -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION \
+		amazon/aws-cli:2.37.4 s3api "$@"
+}
+while :; do
+	objects=$(s3api list-object-versions --bucket BUCKET --prefix locks/ --max-keys 500 \
+		--no-paginate --query '[Versions, DeleteMarkers][].{Key: Key, VersionId: VersionId}')
+	[ "$objects" != "[]" ] || break
+	s3api delete-objects --bucket BUCKET --delete "{\"Objects\": $objects, \"Quiet\": true}"
+done
+docker compose start archivist
+```
 
 **The image is this repo's own**, the only one it builds. `pull_policy: build` makes every
 `docker compose up` build it, which is quick when nothing changed, and recreates the container
