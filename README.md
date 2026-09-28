@@ -1343,8 +1343,17 @@ consumer.
 
 ## Tests
 
-The tests are [bats](https://github.com/bats-core/bats-core) files in `test/`. They read what
-compose makes of the files, `docker compose config`, and assert:
+The tests are [bats](https://github.com/bats-core/bats-core) files. They are split in two runs:
+
+- **The quick check** is the files in `test/`: `compose.bats`, `postgres.bats`,
+  `clickhouse.bats` and `random-secret.bats`. It takes about three minutes. It runs on every
+  pull request and every push to `main`, with ShellCheck.
+- **The end-to-end run** is the files in `test/e2e/`: `archivist.bats`, `restore.bats`,
+  `rebuild.bats`, `infisical.bats` and `up.bats`. It takes about half an hour. It runs nightly
+  on `main`, and by hand. A pull request never waits for it.
+
+`test/compose.bats` reads what compose makes of the files, `docker compose config`, and
+asserts:
 
 - traefik runs alone, and each product runs with only the products it needs;
 - a product without one it needs is refused;
@@ -1397,7 +1406,12 @@ compose makes of the files, `docker compose config`, and assert:
 - a run of `clickhouse-dumper` archives the users and every database, and a database added
   later is archived without being named.
 
-`test/archivist.bats` starts the archivist, with [moto](https://github.com/getmoto/moto)
+`test/random-secret.bats` runs `bin/random-secret` alone, and asserts:
+
+- a secret is 64 hex characters unless told, and exactly as long as told, odd lengths included;
+- a length that is not a whole number is refused, and nothing is printed.
+
+`test/e2e/archivist.bats` starts the archivist, with [moto](https://github.com/getmoto/moto)
 standing in for both the bucket and the secret store, and puts run folders into the backup
 folder by hand, as a dumper would. It asserts:
 
@@ -1409,7 +1423,7 @@ folder by hand, as a dumper would. It asserts:
 - an archive whose upload fails stays in the folder, and the archivist is unhealthy until an
   upload succeeds.
 
-`test/restore.bats` starts Postgres, ClickHouse, both dumpers and the archivist, with moto,
+`test/e2e/restore.bats` starts Postgres, ClickHouse, both dumpers and the archivist, with moto,
 and asserts, on Postgres and on ClickHouse:
 
 - restore names its datastore, one of the two, and refuses a bad name;
@@ -1419,7 +1433,7 @@ and asserts, on Postgres and on ClickHouse:
 - an older archive is picked by its snapshot;
 - a database whose user is gone is refused, and nothing is changed.
 
-`test/rebuild.bats` starts the same containers. It stands in for a new host by removing a
+`test/e2e/rebuild.bats` starts the same containers. It stands in for a new host by removing a
 datastore's volume and starting it again, empty, while the bucket stays. It asserts:
 
 - rebuild names its datastore, one of the two;
@@ -1433,7 +1447,7 @@ datastore's volume and starting it again, empty, while the bucket stays. It asse
 - a password in `.env` that is not the archive's stops the rebuild right after the globals, and
   says so.
 
-`test/infisical.bats` starts Postgres, the transaction door, traefik and Infisical, on a
+`test/e2e/infisical.bats` starts Postgres, the transaction door, traefik and Infisical, on a
 database made by `bin/add-database --postgres infisical`, and asserts:
 
 - Infisical comes up healthy, and traefik answers for `infisical.localhost`;
@@ -1441,12 +1455,7 @@ database made by `bin/add-database --postgres infisical`, and asserts:
   is then closed;
 - a machine identity logs in with its client ID and secret, and reads a secret the admin wrote.
 
-`test/random-secret.bats` runs `bin/random-secret` alone, and asserts:
-
-- a secret is 64 hex characters unless told, and exactly as long as told, odd lengths included;
-- a length that is not a whole number is refused, and nothing is printed.
-
-`test/up.bats` sets up a first host, with moto for the bucket and the secret store: Postgres,
+`test/e2e/up.bats` sets up a first host, with moto for the bucket and the secret store: Postgres,
 the archivist and Infisical, with the first admin, the helper's login and the project `userland`
 made through Infisical's API, where you would use the browser. Its `.env` is a file of the
 test's own, named by `COMPOSE_ENV_FILES`. It asserts:
@@ -1470,20 +1479,31 @@ Their container names are the real ones, so they cannot run on a host where user
 There their first `up` fails, and the running userland is not touched.
 
 They run from docker, as CI runs them. The repo is mounted at its own path, because a test that
-starts a container hands bind-mount paths to the host's docker:
+starts a container hands bind-mount paths to the host's docker. The quick check:
 
 ```sh
 docker run --rm --volume /var/run/docker.sock:/var/run/docker.sock --volume "$PWD":"$PWD" --workdir "$PWD" docker:29-cli sh -c 'apk add --quiet --no-cache bats jq && bats test'
 ```
 
-ShellCheck reads every script and test, from docker too:
+`bats test` does not look in `test/e2e/`. The end-to-end run names it:
 
 ```sh
-docker run --rm --volume "$PWD":/mnt --workdir /mnt koalaman/shellcheck:stable scripts/* bin/* initdb/*.sh test/*.bats
+docker run --rm --volume /var/run/docker.sock:/var/run/docker.sock --volume "$PWD":"$PWD" --workdir "$PWD" docker:29-cli sh -c 'apk add --quiet --no-cache bats jq && bats test/e2e'
 ```
 
-Both run in CI on every pull request and on every push to `main`
-([`.github/workflows/check.yml`](.github/workflows/check.yml)).
+A change needs only the files that cover it. Name them in place of the folder, as in
+`bats test/postgres.bats test/e2e/restore.bats`.
+
+ShellCheck reads every script and test, in both folders, from docker too:
+
+```sh
+docker run --rm --volume "$PWD":/mnt --workdir /mnt koalaman/shellcheck:stable scripts/* bin/* initdb/*.sh test/*.bats test/e2e/*.bats
+```
+
+In CI, ShellCheck and the quick check run on every pull request and every push to `main`
+([`.github/workflows/check.yml`](.github/workflows/check.yml)). The end-to-end run runs
+nightly on `main`, and by hand from the repo's Actions tab, or with `gh workflow run e2e`
+([`.github/workflows/e2e.yml`](.github/workflows/e2e.yml)).
 
 ## Layout
 
@@ -1491,7 +1511,7 @@ Both run in CI on every pull request and on every push to `main`
 |---|---|
 | `compose.yml` | traefik, always on, and always first in `COMPOSE_FILE`. |
 | `compose/` | One file per product, and `public.yml`, which turns traefik public. |
-| `test/` | The bats tests. |
+| `test/` | The bats tests of the quick check. `test/e2e/` holds the end-to-end run's. |
 | `scripts/` | Shell that runs inside a container: the archivist's loop and commands, its password command, and the dumper both datastores run. Nothing here runs on the host. |
 | `bin/` | Helpers that run on the host, in POSIX sh, needing only docker: `up`, `add-database`, `new-password`, `remove-database`, `restore`, `rebuild` and `random-secret`. |
 | `Dockerfile` | The archivist's image, the only one this repo builds: restic, and a reader for the secret store. |

@@ -8,5 +8,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: docker run --rm --volume "$PWD":/mnt --workdir /mnt koalaman/shellcheck:stable scripts/* bin/* initdb/*.sh test/*.bats
+      - run: docker run --rm --volume "$PWD":/mnt --workdir /mnt koalaman/shellcheck:stable scripts/* bin/* initdb/*.sh test/*.bats test/e2e/*.bats
       - run: docker run --rm --volume /var/run/docker.sock:/var/run/docker.sock --volume "$PWD":"$PWD" --workdir "$PWD" docker:29-cli sh -c 'apk add --quiet --no-cache bats jq && bats test'
