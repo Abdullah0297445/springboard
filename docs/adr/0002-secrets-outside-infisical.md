@@ -30,6 +30,10 @@ refuses to write an empty file.
 
 - **The file as the real copy, pushed into Infisical.** Rejected. A push never deletes, so a
   line removed from the file stays in Infisical. A change nobody pushed is lost with the host.
+- **A helper writing the lines it makes into Infisical itself.** Rejected. It would keep a
+  password off the screen, and a missed paste could not lose it. But Infisical's web UI stays
+  the one place a line is changed, and the helpers that make a line know nothing of Infisical.
+  A missed paste costs one new password.
 - **The Infisical Agent, writing every `.env` on a timer.** Rejected. A new `.env` does nothing
   until `up`, so the file and the running containers would differ until someone happened to
   run it. It also needs every consumer's folder mounted into its container.
@@ -55,5 +59,5 @@ refuses to write an empty file.
   from the secret store.
 - `bin/rebuild` puts back each datastore whole on a new host, globals included, from one run.
   It fills only an empty datastore, so it can never reset the users of a live one.
-- A line a helper makes, such as a database's password, belongs in Infisical, not on the
-  screen.
+- A line a helper makes, such as a database's password, is printed once, and you put it in
+  Infisical's web UI. No helper writes into Infisical; `bin/up` only reads from it.

@@ -86,7 +86,8 @@ SQL
 	echo
 	echo "  CLICKHOUSE_URL=clickhouse://$name:$password@clickhouse:9000/$name"
 	echo
-	echo "For a product, in userland's .env:"
+	echo "For a product, put this line in Infisical, in the project userland, environment prod."
+	echo "On a host without Infisical, put it in .env instead:"
 	echo
 	echo "  $(echo "$name" | tr '[:lower:]' '[:upper:]')_CLICKHOUSE_PASSWORD=$password"
 	echo
@@ -176,7 +177,8 @@ echo "For a consumer, through the $door_name:"
 echo
 echo "  DATABASE_URL=postgresql://$name:$password@$door:5432/$name"
 echo
-echo "For a product, in userland's .env:"
+echo "For a product, put this line in Infisical, in the project userland, environment prod."
+echo "On a host without Infisical, put it in .env instead:"
 echo
 echo "  $(echo "$name" | tr '[:lower:]' '[:upper:]')_DB_PASSWORD=$password"
 if [ -n "$session" ]; then
