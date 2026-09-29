@@ -356,9 +356,9 @@ look passwords up with, and its lookup function, `public.pgbouncer_get_auth`, in
 userland never runs an object store, and it makes no bucket and no key: you make them. A
 product that needs a bucket reads five variables under one prefix: `_BUCKET`, `_REGION`,
 `_ENDPOINT`, `_ACCESS_KEY_ID` and `_SECRET_ACCESS_KEY`. `ARCHIVIST_S3`, `LANGFUSE_S3` and
-`TWENTY_S3` are the three. The region is what your provider calls it, which is `auto` on
-Cloudflare R2. The endpoint is a scheme and a host, with no path and no trailing `/`, because
-the bucket's name is its own variable. On AWS it is `https://s3.<region>.amazonaws.com`.
+`TWENTY_S3` are the three. The region is what your provider calls it. The endpoint is a scheme
+and a host, with no path and no trailing `/`, because the bucket's name is its own variable.
+On AWS it is `https://s3.<region>.amazonaws.com`.
 
 **The keys, and what each may do.** Every key reaches its one bucket and nothing else. It lists
 the bucket, gets and puts objects, and aborts a multipart upload, since a killed upload leaves
@@ -390,36 +390,15 @@ object removed by age takes with it every later part that pointed at it. Set no 
 there. S3 performs an expiration itself, so no bucket policy can stop one you set by mistake.
 Turn versioning on for it: *The archivist* says why.
 
-**By hand, at any provider.**
-
-- **AWS.** Bucket, then user, then the inline policy above, then an access key. New buckets
-  block public access, disable ACLs and encrypt at rest by default, so nothing else is set.
-  Retention is a lifecycle rule, where a bucket allows one. **No rule of any kind on the
-  archivist's bucket**, not even a noncurrent-version expiration. An older version outside
-  `locks/` is either restic sending an upload twice, or the evidence and the way back. Under
-  `locks/`, every restic command leaves one, under a delete marker. *The archivist* says how to
-  tell them apart, and how to remove the ones under `locks/` by hand. AWS also recommends a
-  rule that aborts incomplete multipart uploads after a few days; that one is yours too, and it
-  never fires for the archivist, whose objects are far below one part.
-- **Backblaze B2.** An application key restricted to the one bucket with `listFiles`,
-  `readFiles` and `writeFiles`, adding `deleteFiles` only for langfuse's and twenty's.
-  `writeFiles` without `deleteFiles` is the no-delete key. A B2 key carries one capability list
-  for the whole key, so **delete cannot be scoped to a prefix here**: the archivist's key either
-  deletes everywhere or nowhere, and *The archivist* says what each costs. Every B2 bucket keeps
-  versions, so the overwrite guard is there by default. Keep it that way and ignore restic's
-  own advice to add a "keep only the last version" rule, which is for repositories that prune
-  and would throw the guard away. Retention is B2's lifecycle rules; through the S3 API an
-  expiration rule is paired with a delete-marker rule, and neither belongs on the archivist's
-  bucket. Endpoint `https://s3.<region>.backblazeb2.com`, region as in the endpoint. **This is
-  the provider to pick without an AWS account.**
-- **Cloudflare R2.** A token of *Object Read & Write* scoped to the bucket. There is no level
-  that writes without deleting, so on R2 the archivist's key can delete anywhere in its bucket,
-  and a compromised host could erase its own archives there. R2 has no versioning either, so
-  the overwrite guard is absent as well; the archivist's own history is unaffected, because it
-  never lived in versions. Both of those are R2's floor, not a setting: R2 is the weakest of
-  the three for the archivist. Lifecycle rules exist and are prefix-scoped, and none belongs on
-  the archivist's bucket. Endpoint `https://<account id>.r2.cloudflarestorage.com`, region
-  `auto`. Virtual-hosted requests are accepted, so no path-style setting is needed.
+**By hand, on AWS.** Bucket, then user, then the inline policy above, then an access key. New
+buckets block public access, disable ACLs and encrypt at rest by default, so nothing else is
+set. Retention is a lifecycle rule, where a bucket allows one. **No rule of any kind on the
+archivist's bucket**, not even a noncurrent-version expiration. An older version outside
+`locks/` is either restic sending an upload twice, or the evidence and the way back. Under
+`locks/`, every restic command leaves one, under a delete marker. *The archivist* says how to
+tell them apart, and how to remove the ones under `locks/` by hand. AWS also recommends a rule
+that aborts incomplete multipart uploads after a few days; that one is yours too, and it never
+fires for the archivist, whose objects are far below one part.
 
 ## Secret store
 
@@ -799,8 +778,7 @@ the bucket. ClickHouse runs as one container, which langfuse calls development-o
 **Browsers and SDKs read and write media straight in your bucket through short-lived signed
 links, so the bucket must be reachable from wherever you use langfuse. A cloud bucket is.**
 Nothing is routed through traefik for it, and no CORS rule is needed: the UI shows an image
-with a signed link, not a script. Path-style requests are off, which AWS, Backblaze B2 and
-Cloudflare R2 all accept.
+with a signed link, not a script. Path-style requests are off, which AWS accepts.
 
 **langfuse's access key may delete objects, because Data Retention deletes old traces and
 media nightly once you turn it on. It reaches langfuse's bucket and nothing else.** Retention
@@ -926,7 +904,7 @@ install, and each workspace's generated client code. Creating a workspace writes
 bucket, so it fails with *An error occurred* while the bucket cannot be reached. Downloads go
 through twenty rather than to the bucket directly, so no CORS rule is needed and the bucket
 need not be reachable from your browser. Path-style requests are always on in twenty, and
-AWS, Backblaze B2 and Cloudflare R2 all accept them.
+AWS accepts them.
 
 **twenty's access key may delete anything in its bucket**, because twenty moves a file by
 copying it and deleting the original, and deletes a file when you delete its attachment. It
