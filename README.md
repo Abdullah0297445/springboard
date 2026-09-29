@@ -430,8 +430,9 @@ Parameter Store, the one there is), `ARCHIVIST_KEY_NAME`, `ARCHIVIST_KEY_REGION`
 
 Make these, in this order:
 
-1. A `SecureString` parameter holding 32 random bytes. **Never overwrite it**: a replaced
-   master key makes every archive the archivist ever wrote unreadable.
+1. A `SecureString` parameter holding the 64 random hex characters that `bin/random-secret`
+   prints. A `SecureString` holds text, not raw bytes. **Never overwrite it**: a replaced master
+   key makes every archive the archivist ever wrote unreadable.
 2. A user for it.
 3. This policy on the user. `NAME` is the parameter's name without its leading slash, and
    `KEY-ID` is the account's `aws/ssm` key, which `kms describe-key --key-id alias/aws/ssm`
@@ -1252,18 +1253,25 @@ secret in Infisical is lost. Started with another key, Infisical says so in
    prints to `.env`. Add `compose/infisical.yml` to `COMPOSE_FILE`, and run
    `docker compose up -d`.
 5. **Make the first admin at once.** Open `infisical.${DOMAIN}` and sign up. The first account
-   becomes the admin of the whole of Infisical, and Infisical then closes sign-up by itself.
-   **Until you do, whoever reaches it first becomes the admin.** In public, a new hostname is
-   listed in public certificate logs within minutes of its certificate.
+   becomes the admin of the whole of Infisical. **Until you do, whoever reaches it first becomes
+   the admin.** In public, a new hostname is listed in public certificate logs within minutes of
+   its certificate. Sign-up has four steps:
+   1. The admin: you.
+   2. An organization. It needs a name.
+   3. "Who can create accounts?". Invite-only is already picked. Keep it, so nobody else can
+      sign up.
+   4. A review. Choose Finish setup.
 6. Make the helper's login. Under Administration, Access Control, Machine Identities, choose
    Create. Keep the role Member. On its page, open Universal Auth and copy the Client ID, then
    Add Client Secret and copy the secret, which is shown once. Put them in `.env` as
    `INFISICAL_CLIENT_ID` and `INFISICAL_CLIENT_SECRET`.
 7. Make the project `userland`. Under its Settings, General, change its slug to `userland`: the
-   web UI adds random letters to it. Under its Access Control, Machine Identities, add the
-   helper's login to it as Member.
+   web UI adds random letters to it. Under its Access Control, Machine Identities, choose to add
+   one. "Add Machine Identity to Project" opens on Create New: pick Assign Existing instead, then
+   the helper's login. Its role starts at No Access: change it to Member.
 8. In the project's Production environment, `prod`, choose Add New, Upload Secrets, and pick
-   `.env`. Every line now has its real copy in Infisical.
+   `.env`. A review follows, "Select environments to upload to", with Production already
+   picked. Keep it, and upload. Every line now has its real copy in Infisical.
 9. Run `bin/up`. From now on, change a line in Infisical, and run `bin/up` again.
 10. Give `postgres-dumper` its intent, under *The archivist*:
     `docker exec postgres-dumper dumper now`. Do the same for `clickhouse-dumper` whenever
