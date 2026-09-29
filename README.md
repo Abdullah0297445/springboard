@@ -588,8 +588,8 @@ limit is one it respects rather than one it dies against. No number is written h
 
 ClickHouse logs at trace level to files inside the container, in `/var/log/clickhouse-server`,
 rotated by the image; `docker logs clickhouse` shows only the entrypoint. Nothing is published
-on the host: products reach it on `userland_clickhouse`, ports 8123 for HTTP and 9000 for the
-native protocol, and you reach it with `docker exec clickhouse clickhouse-client`.
+on the host: products and consumers reach it on `userland_clickhouse`, ports 8123 for HTTP and
+9000 for the native protocol, and you reach it with `docker exec clickhouse clickhouse-client`.
 
 Its backup directory, `/var/lib/clickhouse/backups`, is the backup folder, `backups`, which
 the dumpers and the archivist mount too. ClickHouse writes its archives into `clickhouse/`
@@ -1417,45 +1417,82 @@ bin/rebuild --postgres --run 20260925T000000Z
 
 ## For a consumer
 
-A **consumer** is a project of your own that uses userland and is not part of it.
+A **consumer** is a project of your own that uses userland and is not part of it. It runs from
+a compose file in its own repo, and userland never starts it. It reaches userland only by
+joining userland's networks, because no port is published but traefik's.
 
-- **Its `.env` is its own.** Its admin may keep it in Infisical, in a project of its own, with a
-  login of its own, both made in the web UI. No helper reads or writes it, and `bin/up` never
-  starts a consumer.
+| For | It joins | It reaches | It needs |
+|---|---|---|---|
+| a database on Postgres | `userland_postgres` | a door: `pgbouncer-transaction:5432` or `pgbouncer-session:5432` | `DATABASE_URL`, printed by `bin/add-database --postgres` |
+| a database on ClickHouse | `userland_clickhouse` | `clickhouse:9000` for the native protocol, or `clickhouse:8123` for HTTP | `CLICKHOUSE_URL`, printed by `bin/add-database --clickhouse` |
+| a hostname behind traefik | `userland_traefik` | nothing: traefik reaches it, at `NAME.DOMAIN` | four labels on its container |
 
-- **Two networks**, `userland_postgres` and `userland_traefik`, which the consumer's compose
-  file declares as `external: true` and joins. A consumer with a database on ClickHouse joins
-  `userland_clickhouse` the same way.
-- **Two doors to Postgres**, `pgbouncer-transaction:5432` and `pgbouncer-session:5432`, and
-  the DSN names one. `pgbouncer-transaction` is the default, for a consumer that keeps no state
-  on a connection between transactions. `pgbouncer-session` is for one that does, whether a
-  `SET`, a `LISTEN`, a session-scoped advisory lock or a prepared statement it reuses; it pins
-  one Postgres connection for as long as the consumer holds its own, so the consumer must
-  release connections promptly. The session door lends up to 100 connections per database,
-  Postgres's own limit, so there Postgres decides and not the door; the transaction door lends
-  pgbouncer's 20. `postgres-18` itself is not on `userland_postgres`, so the doors are the only
-  way in.
-- **traefik** routes a consumer by the labels on its container. `NAME` and `PORT` are the
-  consumer's own, and `DOMAIN` is `localhost` in local. The same four labels serve both
-  visibilities. In public, the certificate comes by itself and plain HTTP is redirected,
-  because TLS sits on traefik's entrypoint:
+It joins only the networks it needs, and declares each one `external: true`. Here is a
+consumer with a database on Postgres, behind traefik. `NAME` and `PORT` are the consumer's own.
+`DOMAIN` is `localhost` in local, and your domain in public:
 
-  ```yaml
-  labels:
-    - traefik.enable=true
-    - traefik.http.routers.NAME.rule=Host(`NAME.DOMAIN`)
-    - traefik.http.services.NAME.loadbalancer.server.port=PORT
-    - traefik.docker.network=userland_traefik
-  ```
+```yaml
+services:
+  NAME:
+    networks:
+      - userland_postgres
+      - userland_traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.NAME.rule=Host(`NAME.DOMAIN`)
+      - traefik.http.services.NAME.loadbalancer.server.port=PORT
+      - traefik.docker.network=userland_traefik
 
-### A consumer's database
+networks:
+  userland_postgres:
+    external: true
+  userland_traefik:
+    external: true
+```
+
+A consumer on ClickHouse joins `userland_clickhouse` the same way. There is no network for
+Redis, because no Redis is offered to a consumer. A product that needs Redis runs its own, and
+so does a consumer.
+
+### Its DSN
 
 A consumer's database is made, given a new password and dropped with the helpers under
-*Provisioning*, the same way as a product's. The DSN goes to the consumer's admin, for the
-consumer's own `.env`.
+*Provisioning*, the same way as a product's. Each helper prints the DSN once, and nothing on the
+host keeps a copy you can read back. It goes to the consumer's admin, for the consumer's own
+`.env`.
 
-No Redis is offered to a consumer. A product that needs Redis runs its own, and so does a
-consumer.
+**Its `.env` is its own.** Its admin may keep it in Infisical, in a project of its own, with a
+login of its own, both made in the web UI. No helper reads or writes it, and `bin/up` never
+starts a consumer.
+
+### Through a door
+
+**Two doors**, and the DSN names one. `postgres-18` itself is not on `userland_postgres`, so
+the doors are the only way in.
+
+- **`pgbouncer-transaction`** is the default. It is for a consumer that keeps no state on a
+  connection between transactions. It lends pgbouncer's 20 Postgres connections per database.
+- **`pgbouncer-session`** is for a consumer that does keep state: a `SET`, a `LISTEN`, a
+  session-scoped advisory lock, or a prepared statement it reuses. `bin/add-database --session`
+  prints a DSN that names it. It pins one Postgres connection for as long as the consumer holds
+  its own, so the consumer must release connections promptly. It lends up to 100 per database,
+  Postgres's own limit, so there Postgres decides and not the door.
+
+A consumer that runs [PostgREST](https://postgrest.org) gets its database with `--api`, under
+*Provisioning*. PostgREST's `PGRST_DB_URI` always names the session door.
+
+### On ClickHouse
+
+The DSN names the native protocol, on port 9000. A consumer whose driver speaks HTTP uses
+port 8123, with the same user and password. That user holds the grants under *ClickHouse*, on
+its own database alone.
+
+### Behind traefik
+
+traefik routes a consumer by the four labels on its container, the same in both visibilities.
+The last one names the network traefik reaches it on, which matters once the container is on
+more than one. In public, the certificate comes by itself and plain HTTP is redirected, because
+TLS sits on traefik's entrypoint.
 
 ## Tests
 
@@ -1479,7 +1516,8 @@ asserts:
 - Infisical's address and its secure cookies follow the visibility;
 - no port is published but traefik's 80, and its 443 in public;
 - every container another waits on has a healthcheck;
-- consumers join `userland_postgres` and `userland_traefik`, and `postgres-18` is on neither;
+- consumers join `userland_postgres`, `userland_clickhouse` and `userland_traefik`, and
+  `postgres-18` is not on `userland_postgres`;
 - every container is named as its service, and takes its memory limit from its own variable;
 - this README names every variable compose reports;
 - every file in `compose/` is a product the tests know, or `public.yml`.
