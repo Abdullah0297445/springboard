@@ -8,7 +8,8 @@ POSTGRES_PASSWORD=postgres-password
 PGBOUNCER_AUTH_PASSWORD=pgbouncer-auth-password
 EOF
 	compose down --volumes --remove-orphans
-	compose up --detach --wait postgres-18 pgbouncer-transaction pgbouncer-session postgres-dumper
+	compose up --detach --wait postgres-18 pgbouncer-transaction pgbouncer-session
+	compose up --detach postgres-dumper
 }
 
 teardown_file() {
@@ -337,7 +338,7 @@ Either one recreates both doors, and postgres-18 too. Until then, the doors may 
 It is a recovery key, so change your copy off the host too." ]]
 	[[ "$output" != *"userland's .env"* ]]
 	sed -i "s/^PGBOUNCER_AUTH_PASSWORD=.*/PGBOUNCER_AUTH_PASSWORD=$password/" "$env_file"
-	compose up --detach --wait postgres-18 pgbouncer-transaction pgbouncer-session postgres-dumper
+	compose up --detach --wait postgres-18 pgbouncer-transaction pgbouncer-session
 	run connect "$url" "SELECT current_user"
 	[ "$status" -eq 0 ]
 	[ "$output" = "gate" ]

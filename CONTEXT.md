@@ -168,7 +168,8 @@ _Avoid_: users, roles file, cluster objects
 
 **Drill**:
 A rehearsal of a recovery, against a throwaway, to prove that the recovery works. A backup
-that no drill has restored is not a backup.
+that no drill has restored is not a backup. A throwaway never gets the intent, so it reads the
+bucket and never writes to it.
 _Avoid_: test, dry run
 
 ### Roles inside a database, for PostgREST
@@ -197,8 +198,15 @@ _Avoid_: fort, backup service, backup container
 **Dumper**:
 The container in a datastore product that archives each of its databases into the backup
 folder, on a schedule of its own, and writes an archive back on a restore. It finds every
-database by itself, so none is ever named. What it writes is an archive, never a dump.
+database by itself, so none is ever named. What it writes is an archive, never a dump. It
+archives nothing until it has its intent.
 _Avoid_: backup container, exporter, backup job
+
+**Intent**:
+An admin's word, given by hand to one dumper, that this host is the one that writes to the
+bucket. It is the dumper's first run by hand, and from then on its slots run. Until then the
+dumper archives nothing. It stays on the host, and no helper ever gives it.
+_Avoid_: enable, activate, arm, claim
 
 **Backup folder**:
 The one place on the host where every dumper leaves its archives, each datastore in a folder
@@ -217,7 +225,8 @@ _Avoid_: passphrase, backup key, encryption key, secret
 What restic keeps inside the archivist's bucket: every archive, encrypted under the
 archivist's master key. It is not the bucket. It is made once, by hand, after the bucket, and
 never by the archivist on its own, so a repository that is missing is an alarm and not a fresh
-start.
+start. One running host writes into it at a time. A second one's runs mix with the first's, and
+nothing tells them apart.
 _Avoid_: bucket (for this), repo, store, vault
 
 **Secret store**:

@@ -38,7 +38,8 @@ EOF
 	aws 's3.create_bucket(Bucket="archivist-test")'
 	aws "ssm.put_parameter(Name='/userland/archivist-key', Value='0123456789abcdef0123456789abcdef', Type='SecureString')"
 	compose run --rm archivist init
-	compose up --detach --wait --wait-timeout 120 postgres-18 pgbouncer-transaction pgbouncer-session postgres-dumper clickhouse clickhouse-dumper archivist
+	compose up --detach --wait --wait-timeout 120 postgres-18 pgbouncer-transaction pgbouncer-session clickhouse archivist
+	compose up --detach postgres-dumper clickhouse-dumper
 }
 
 teardown_file() {

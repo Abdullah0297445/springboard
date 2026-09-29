@@ -149,7 +149,9 @@ MB_ENCRYPTION_SECRET_KEY=...
   back.
 
 This way runs no archivist and no Infisical, so nothing ever leaves the host. It is for local
-visibility, to find out whether you want userland.
+visibility, to find out whether you want userland. `postgres-dumper` shows as unhealthy here:
+it waits for its intent, under *The archivist*, and with no archivist there is nowhere for its
+archives to go. Leave it waiting.
 
 ### A host you keep
 
@@ -178,6 +180,8 @@ It does this, in order. A step that fails stops it, changes nothing, and says wh
    archivist, a lost host loses every line.
 6. It swaps the new file in, readable only by you.
 7. It runs `docker compose up -d --remove-orphans`.
+8. It names each dumper that is not healthy, and why. On a new host, that is each one that
+   waits for its intent.
 
 A second run changes nothing: the file is the same, and compose recreates no container.
 
@@ -995,9 +999,13 @@ is not yet a backup.
   00:00 UTC. The default, 24, is every day at midnight UTC; 6 is 00:00, 06:00, 12:00 and 18:00.
   It is a shell loop, [`scripts/dumper`](scripts/dumper), run in the server's own image, so its
   client always matches the server.
-- It writes the time of its last finished run into `last-run`, in its folder. After a restart,
-  a run that fell due while it was down runs at once, and only once. On its very first start it
-  waits for the next slot.
+- **It archives nothing until it has its intent**: your word that this host is the one that
+  writes to the bucket. You give it once to each dumper, by hand, with its first `dumper now`,
+  below. From then on its slots run. Until then it says so in `docker logs`, it is unhealthy, and
+  `bin/up` names it. No helper ever gives it, because a drill runs the same helpers on a
+  throwaway, and a throwaway must never write to the bucket. *Bringing a host back* says why.
+- It writes the time of its last finished run into `last-run`, in its folder. That file is its
+  intent. After a restart, a run that fell due while it was down runs at once, and only once.
 - It looks at the clock at least once a minute. `sleep` does not count the time a host is
   suspended, as a laptop is every night and a server's VM may be, so a dumper never sleeps
   longer than that. A slot that fell due while the host was suspended runs within a minute of
@@ -1012,7 +1020,8 @@ is not yet a backup.
   the archivist is away, runs pile up there, and the disk has to hold them.
 - `docker exec postgres-dumper dumper now` runs one now, whatever the schedule, and so does
   `docker exec clickhouse-dumper dumper now`. The archivist takes it off the host within a
-  minute.
+  minute. The first one gives the dumper its intent, and says when its next slot is. One that
+  archives nothing gives none.
 
 **Postgres.** A run holds `globals.sql`, from `pg_dumpall --globals-only`, and
 `databases/NAME.dump` for every database but `postgres`, each a `pg_dump` in custom format. The
@@ -1153,8 +1162,9 @@ its password command. restic's version is written only in the Dockerfile. The du
 nothing: each runs `scripts/dumper`, mounted into its server's image.
 
 **Each container reports on itself**, through docker's healthcheck, so `docker compose ps`
-shows it. A dumper turns unhealthy when its last run failed, or when none has finished for two
-intervals. The archivist turns unhealthy when its last upload failed, and healthy again at the
+shows it. A dumper is unhealthy while it waits for its intent, when its last run failed, or when
+none has finished for two intervals. `bin/up` ends by naming each dumper that is not healthy,
+and why. The archivist turns unhealthy when its last upload failed, and healthy again at the
 next one that succeeds. **Nobody is told**: until userland runs something that watches,
 `docker compose ps`, `docker logs` and the snapshot list are the evidence.
 
@@ -1255,7 +1265,10 @@ secret in Infisical is lost. Started with another key, Infisical says so in
 8. In the project's Production environment, `prod`, choose Add New, Upload Secrets, and pick
    `.env`. Every line now has its real copy in Infisical.
 9. Run `bin/up`. From now on, change a line in Infisical, and run `bin/up` again.
-10. Copy the recovery keys off the host, under *Bringing a host back*.
+10. Give `postgres-dumper` its intent, under *The archivist*:
+    `docker exec postgres-dumper dumper now`. Do the same for `clickhouse-dumper` whenever
+    ClickHouse is switched on. `bin/up` names each dumper that still waits.
+11. Copy the recovery keys off the host, under *Bringing a host back*.
 
 Its database password, its Redis password, its auth secret and the helper's login are recovery
 keys. On a new host there is no admin, login or project to make: Infisical's database comes back
@@ -1319,7 +1332,17 @@ comes back with the globals, and every other line comes from Infisical.
       `bin/rebuild --clickhouse` if ClickHouse holds no database.
    5. It runs `docker compose up -d --remove-orphans`. Every product starts on data that is
       already back.
-3. Start each consumer. It gets its `.env` its own way.
+   6. It names each dumper that waits for its intent, as `bin/up` does.
+3. **Replace the archivist's bucket key.** Make a new access key with the same policy, under
+   *Object store*. Put its two lines, `ARCHIVIST_S3_ACCESS_KEY_ID` and
+   `ARCHIVIST_S3_SECRET_ACCESS_KEY`, in Infisical and in your copy of the recovery keys. Run
+   `bin/up`, then delete the old key. If the lost host ever comes back, it can write nothing.
+   Do it after the rebuild, not in the first `.env`: `bin/up --rebuild` writes `.env` from
+   Infisical, which still holds the old key.
+4. **Give each dumper its intent**: `docker exec postgres-dumper dumper now`, and
+   `docker exec clickhouse-dumper dumper now` if ClickHouse is on. The key comes first, so the
+   two hosts are never both able to write.
+5. Start each consumer. It gets its `.env` its own way.
 
 No product starts before its data is back. Infisical waits for Postgres's rebuild, so it never
 meets a Postgres without its database. A step that fails stops it, and says why. Once that is
@@ -1330,6 +1353,22 @@ Then run `bin/up`, which starts ClickHouse empty.
 If the first `.env` holds a `COMPOSE_FILE`, `bin/up --rebuild` starts Postgres, the archivist
 and Infisical with it. The tests use this to add their stand-in for the bucket. A real host
 needs none.
+
+**One bucket, one running host.** Only one host at a time may write into the archivist's
+bucket. Every snapshot says it came from `archivist`, whatever the host, so nothing tells two
+hosts' archives apart. `bin/rebuild` takes the newest run, and `bin/restore` the newest archive,
+whichever host wrote it. Two hosts that start a run in the same second give it two of each
+archive, and `bin/rebuild` refuses it. A second apart, nothing fails: the later run is simply the
+newest, even when its data is a day old. A second host appears in two ways:
+
+- **A drill on a throwaway.** It does steps 1 and 2, and its checks, and never 3 or 4. A new
+  key would shut out the real host, and an intent would write the throwaway's runs beside the
+  real host's. Its dumpers wait, unhealthy, and nothing leaves it. Throw the machine away when
+  you are done.
+- **A lost host that comes back**, such as a VM its provider brings back after an outage. It
+  already has its intent, and docker starts it again. Its dumper runs the slot it missed at
+  once, so its old data becomes the newest run. Step 3 is what stops it: with its key deleted,
+  it can write nothing.
 
 **`bin/rebuild`** puts a whole datastore back from one **run**: one pass of a dumper, named by
 the time it started, as its folder in the backup folder is.
@@ -1344,11 +1383,15 @@ bin/rebuild --postgres --run 20260925T000000Z
 - It takes the newest run, and says which before it starts. The globals go back first, then
   every database in that run. Every archive comes from the one run, so every database comes
   back from the same moment, even if a dumper runs meanwhile.
-- **Run it straight after the datastore starts**, as `bin/up --rebuild` does. A dumper starts with its datastore, and its
-  first run waits for the next slot. A run before the rebuild archives an empty datastore, and
+- **Give the intent only after the rebuild.** A dumper on a new host archives nothing until
+  then. One given its intent before the rebuild archives an empty datastore, and that run
   becomes the newest. So `bin/rebuild` refuses a newest run with no database in it, and lists
   the runs there are. `--run` names the one to take, and this lists every archive with its
   run: `docker exec archivist archivist runs postgres`.
+- **It refuses a run that holds one archive twice**, the newest or one named with `--run`, and
+  changes nothing. Two hosts wrote into the bucket in the same second, and it cannot tell whose
+  archive is whose. Name another run with `--run`. *One bucket, one running host*, above, says
+  how it happens.
 - It refuses a datastore that is not empty, and changes nothing. Empty on Postgres is no
   database and no user but its own. On ClickHouse it is no database but its own, no table in
   `default`, and no user but `default`. So a rebuild can never reset the users of a live
@@ -1494,6 +1537,8 @@ folder by hand, as a dumper would. It asserts:
 dumper's clock ahead by as many seconds as the test says. When a suspended host wakes, its clock
 jumps ahead in the same way, and `sleep` does not notice. It asserts:
 
+- on its first start, a dumper archives nothing, and is unhealthy until it has its intent;
+- the first `dumper now` gives the intent: it archives at once, and the dumper is healthy;
 - with the clock an hour short of a slot, nothing runs;
 - after the clock jumps past the slot, the slot runs within a minute;
 - the slot runs only once.
@@ -1520,7 +1565,8 @@ datastore's volume and starting it again, empty, while the bucket stays. It asse
 - the newest run is taken, a newest run with no database is refused, and `--run` takes an older
   one;
 - a password in `.env` that is not the archive's stops the rebuild right after the globals, and
-  says so.
+  says so;
+- a run two hosts wrote in the same second is refused, newest or named, and nothing is changed.
 
 `test/e2e/infisical.bats` starts Postgres, the transaction door, traefik and Infisical, on a
 database made by `bin/add-database --postgres infisical`, and asserts:
@@ -1539,6 +1585,7 @@ test's own, named by `COMPOSE_ENV_FILES`. It asserts:
 - an empty project stops `bin/up`, and nothing is changed;
 - it writes `.env` from userland's project, readable only by you, and starts what its
   `COMPOSE_FILE` names;
+- it ends by naming each dumper that waits for its intent;
 - any value reaches a container unchanged: `$`, `"`, `\`, `#`, `'`, `${...}` and a newline;
 - a second run changes nothing: the same file, and no container recreated;
 - a `COMPOSE_FILE` without Postgres, the archivist or Infisical is refused, and nothing is
@@ -1547,7 +1594,7 @@ test's own, named by `COMPOSE_ENV_FILES`. It asserts:
 - on a new host, an empty Postgres is refused, and `--rebuild` is named;
 - `--rebuild` refuses a first `.env` without a recovery key, and starts nothing;
 - `--rebuild` brings a new host back from the first `.env` alone: a row on Postgres, a table on
-  ClickHouse, and every line in Infisical;
+  ClickHouse, and every line in Infisical, while each dumper waits for its intent;
 - a second `--rebuild` changes nothing.
 
 Their container names are the real ones, so they cannot run on a host where userland is up.
