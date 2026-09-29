@@ -197,6 +197,14 @@ containers() {
 running" ]
 }
 
+@test "it ends by naming each dumper that waits for its intent" {
+	docker exec clickhouse-dumper dumper now >/dev/null
+	run --separate-stderr bin/up
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"postgres-dumper: waits for its intent. On the host that writes to the bucket, run docker exec postgres-dumper dumper now."* ]]
+	[[ "$output" != *"clickhouse-dumper:"* ]]
+}
+
 @test "any value reaches a container unchanged" {
 	local value
 	value=$'a$b$$c"d\\e #f \'g ${DOMAIN}\nh'
@@ -292,6 +300,8 @@ running" ]
 @test "--rebuild brings a new host back from the first .env alone" {
 	run --separate-stderr bin/up --rebuild
 	[ "$status" -eq 0 ]
+	[[ "$output" == *"postgres-dumper: waits for its intent. On the host that writes to the bucket, run docker exec postgres-dumper dumper now."* ]]
+	[[ "$output" == *"clickhouse-dumper: waits for its intent. On the host that writes to the bucket, run docker exec clickhouse-dumper dumper now."* ]]
 	[ "$(connect "$(cat "$BATS_FILE_TMPDIR/shop")" "SELECT id FROM orders")" = 1 ]
 	[ "$(client "$(cat "$BATS_FILE_TMPDIR/events")" "SELECT id FROM hits")" = 2 ]
 	grep -qx "COMPOSE_FILE=\"$full\"" "$COMPOSE_ENV_FILES"

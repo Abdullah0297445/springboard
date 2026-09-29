@@ -69,13 +69,17 @@ archives=$(echo "$runs" | awk -v run="$run" '$1 == run { print $2, $3 }')
 [ -n "$archives" ] ||
 	die "the bucket holds no run $run of $datastore. Nothing was changed. The runs there are:
 $listing"
+twice=$(echo "$archives" | cut -d ' ' -f 2 | sort | uniq -d | head -n 1)
+[ -z "$twice" ] ||
+	die "the run $run holds two archives of $twice: two hosts wrote into this bucket in the same second. One bucket takes one running host. Nothing was changed. Name another run with --run. The runs there are:
+$listing"
 globals=$(echo "$archives" | awk -v path="/$datastore/globals" 'index($2, path) == 1 { print $1, $2 }')
 databases=$(echo "$archives" | awk -v path="/$datastore/databases/" 'index($2, path) == 1 { print $1, $2 }')
 [ -n "$globals" ] ||
 	die "the run $run holds no globals, so its users cannot come back. Nothing was changed. Name another run with --run. The runs there are:
 $listing"
 [ -n "$named" ] || [ -n "$databases" ] ||
-	die "the newest run, $run, holds no database. It may be a run of an empty $datastore, on this host. Nothing was changed. Name the run to rebuild from with --run. The runs there are:
+	die "the newest run, $run, holds no database. If this host was given its intent before the rebuild, that run archived an empty $datastore. Nothing was changed. Name the run to rebuild from with --run. The runs there are:
 $listing"
 names=$(echo "$databases" | sed 's|^.*/||; s|\.[a-z]*$||' | tr '\n' ' ' | sed 's/ $//')
 

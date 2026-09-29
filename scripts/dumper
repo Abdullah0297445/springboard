@@ -6,6 +6,7 @@ hours=${DUMPER_HOURS:-24}
 folder=/backups/$datastore
 record=$folder/last-run
 lock=/tmp/dumper.lock
+waiting="waits for its intent. On the host that writes to the bucket, run docker exec $datastore-dumper dumper now."
 
 say() {
 	echo "$datastore-dumper: $*"
@@ -190,7 +191,11 @@ run_slot() {
 		status=failed
 	fi
 	flock -u 9
-	echo "$1 $status" >"$record.new"
+	remember "$1" "$status"
+}
+
+remember() {
+	echo "$1 $2" >"$record.new"
 	mv "$record.new" "$record"
 }
 
@@ -204,19 +209,21 @@ serve() {
 		say "removed $leftover, which a stopped run left behind"
 	done
 	flock -u 9
-	if [ ! -f "$record" ]; then
-		echo "$(last_slot) ok" >"$record"
-		say "first start, so nothing runs until the next slot"
+	if [ -f "$record" ]; then
+		say "runs every $hours hours from 00:00 UTC; the next is at $(at $(($(last_slot) + interval)))"
+	else
+		say "$waiting"
 	fi
-	say "runs every $hours hours from 00:00 UTC; the next is at $(at $(($(last_slot) + interval)))"
 	while :; do
-		due=$(last_slot)
-		last=$(cut -d ' ' -f 1 "$record")
-		case $last in
-		'' | *[!0-9]*) last=0 ;;
-		esac
-		if [ "$last" -lt "$due" ]; then
-			run_slot "$due"
+		if [ -f "$record" ]; then
+			due=$(last_slot)
+			last=$(cut -d ' ' -f 1 "$record")
+			case $last in
+			'' | *[!0-9]*) last=0 ;;
+			esac
+			if [ "$last" -lt "$due" ]; then
+				run_slot "$due"
+			fi
 		fi
 		left=$(($(last_slot) + interval - $(date +%s)))
 		sleep $((left < 60 ? left : 60))
@@ -231,7 +238,23 @@ now() {
 	mkdir -p "$folder"
 	exec 9>"$lock"
 	flock 9
-	archive
+	if [ -f "$record" ]; then
+		archive
+		return
+	fi
+	slot=$(last_slot)
+	if archive; then
+		status=ok
+	else
+		status=failed
+	fi
+	if [ ! -d "$folder/$started" ]; then
+		complain "nothing was archived, so it still waits for its intent"
+		exit 1
+	fi
+	remember "$slot" "$status"
+	say "has its intent, so this host writes to the bucket. It runs every $hours hours from 00:00 UTC; the next is at $(at $((slot + interval)))"
+	[ "$status" = ok ]
 }
 
 restore() {
@@ -266,7 +289,10 @@ restore_the_globals() {
 }
 
 health() {
-	[ -f "$record" ] || exit 0
+	if [ ! -f "$record" ]; then
+		echo "$waiting"
+		exit 1
+	fi
 	read -r last status <"$record"
 	if [ "$status" != ok ]; then
 		echo "the last run failed; docker logs $datastore-dumper says what"

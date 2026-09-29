@@ -38,7 +38,8 @@ EOF
 	aws 's3.create_bucket(Bucket="archivist-test")'
 	aws "ssm.put_parameter(Name='/userland/archivist-key', Value='0123456789abcdef0123456789abcdef', Type='SecureString')"
 	compose run --rm archivist init
-	compose up --detach --wait --wait-timeout 120 postgres-18 pgbouncer-transaction pgbouncer-session postgres-dumper clickhouse clickhouse-dumper archivist
+	compose up --detach --wait --wait-timeout 120 postgres-18 pgbouncer-transaction pgbouncer-session clickhouse archivist
+	compose up --detach postgres-dumper clickhouse-dumper
 }
 
 teardown_file() {
@@ -85,13 +86,15 @@ archive_now() {
 new_postgres() {
 	compose rm --stop --force postgres-18 pgbouncer-transaction pgbouncer-session postgres-dumper
 	docker volume rm "${project}_postgres_data"
-	compose up --detach --wait --wait-timeout 120 postgres-18 pgbouncer-transaction pgbouncer-session postgres-dumper
+	compose up --detach --wait --wait-timeout 120 postgres-18 pgbouncer-transaction pgbouncer-session
+	compose up --detach postgres-dumper
 }
 
 new_clickhouse() {
 	compose rm --stop --force clickhouse clickhouse-dumper
 	docker volume rm "${project}_clickhouse_data"
-	compose up --detach --wait --wait-timeout 120 clickhouse clickhouse-dumper
+	compose up --detach --wait --wait-timeout 120 clickhouse
+	compose up --detach clickhouse-dumper
 }
 
 @test "rebuild names its datastore, one of the two" {
@@ -156,7 +159,7 @@ new_clickhouse() {
 	empty=$(archive_now postgres)
 	run --separate-stderr bin/rebuild --postgres
 	[ "$status" -ne 0 ]
-	[[ "$stderr" == *"newest run, $empty, holds no database"* ]]
+	[[ "$stderr" == *"newest run, $empty, holds no database. If this host was given its intent before the rebuild, that run archived an empty postgres."* ]]
 	[[ "$stderr" == *"$older"* ]]
 	[[ "$stderr" == *"$newer"* ]]
 	run --separate-stderr bin/rebuild --postgres --run 20000101T000000Z
@@ -220,4 +223,25 @@ new_clickhouse() {
 	[[ "$stderr" == *"PGBOUNCER_AUTH_PASSWORD"* ]]
 	[[ "$stderr" == *"recovery key"* ]]
 	[ "$(docker exec postgres-18 psql -X -tA -U postgres -c "SELECT count(*) FROM pg_database WHERE datname = 'guard'")" = "0" ]
+}
+
+@test "a run two hosts wrote in the same second is refused, and nothing is changed" {
+	run --separate-stderr bin/add-database --postgres twice
+	[ "$status" -eq 0 ]
+	taken=$(docker exec postgres-dumper dumper now | sed -n 's|^.* into /backups/[a-z]*/||p')
+	docker exec postgres-dumper cp -r "/backups/postgres/$taken" /tmp/other-host
+	docker exec archivist archivist upload >/dev/null
+	docker exec postgres-dumper cp -r /tmp/other-host "/backups/postgres/$taken"
+	docker exec archivist archivist upload >/dev/null
+	new_postgres
+	run --separate-stderr bin/rebuild --postgres
+	[ "$status" -ne 0 ]
+	[[ "$stderr" == *"the run $taken holds two archives of /postgres/"* ]]
+	[[ "$stderr" == *"two hosts wrote into this bucket in the same second. One bucket takes one running host. Nothing was changed. Name another run with --run."* ]]
+	[[ "$stderr" == *"$taken"*"databases"* ]]
+	run --separate-stderr bin/rebuild --postgres --run "$taken"
+	[ "$status" -ne 0 ]
+	[[ "$stderr" == *"two hosts wrote into this bucket in the same second"* ]]
+	[ "$(docker exec postgres-18 psql -X -tA -U postgres -c "SELECT count(*) FROM pg_database WHERE datname = 'twice'")" = "0" ]
+	[ "$(docker exec postgres-18 psql -X -tA -U postgres -c "SELECT count(*) FROM pg_roles WHERE rolname = 'twice'")" = "0" ]
 }

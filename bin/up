@@ -61,8 +61,10 @@ held_by_clickhouse() {
 if [ -n "$rebuild" ]; then
 	grep -q '^COMPOSE_FILE=' "$env_file" ||
 		export COMPOSE_FILE=compose.yml:compose/postgres.yml:compose/archivist.yml:compose/infisical.yml
-	docker compose up --detach --wait --wait-timeout 120 postgres-18 postgres-dumper archivist ||
-		die "Postgres and the archivist did not start."
+	{
+		docker compose up --detach --wait --wait-timeout 120 postgres-18 archivist &&
+			docker compose up --detach postgres-dumper
+	} || die "Postgres and the archivist did not start."
 	held=$(held_by_postgres) || die "cannot reach postgres-18."
 	[ "$held" != 0 ] || bin/rebuild --postgres ||
 		die "bin/rebuild --postgres stopped, and says why above."
@@ -114,11 +116,17 @@ fi
 chmod 600 "$env_file"
 
 if [ -n "$rebuild" ] && echo "$services" | grep -qx clickhouse; then
-	docker compose up --detach --wait --wait-timeout 120 clickhouse clickhouse-dumper ||
-		die "ClickHouse did not start."
+	{
+		docker compose up --detach --wait --wait-timeout 120 clickhouse &&
+			docker compose up --detach clickhouse-dumper
+	} || die "ClickHouse did not start."
 	held=$(held_by_clickhouse) || die "cannot reach clickhouse."
 	[ "$held" != 0 ] || bin/rebuild --clickhouse ||
 		die "bin/rebuild --clickhouse stopped, and says why above. If ClickHouse held no data before, run bin/up: it starts ClickHouse empty."
 fi
 
 docker compose up --detach --remove-orphans
+echo "$services" | grep -- '-dumper$' | while read -r dumper; do
+	reason=$(docker exec "$dumper" dumper health 2>/dev/null) ||
+		echo "$dumper: ${reason:-does not answer; docker logs $dumper says why}"
+done

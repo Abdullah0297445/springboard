@@ -7,7 +7,8 @@ setup_file() {
 CLICKHOUSE_PASSWORD=clickhouse-password
 EOF
 	compose down --volumes --remove-orphans
-	compose up --detach --wait clickhouse clickhouse-dumper
+	compose up --detach --wait clickhouse
+	compose up --detach clickhouse-dumper
 }
 
 teardown_file() {
