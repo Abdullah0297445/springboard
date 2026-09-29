@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+export LC_ALL=C
+
+usage="usage: bin/remove-pg-role NAME"
+
+die() {
+	echo "remove-pg-role: $1" >&2
+	exit 1
+}
+
+name=
+count=0
+for argument in "$@"; do
+	case $argument in
+	-*) die "$argument is not an option. $usage" ;;
+	*)
+		name=$argument
+		count=$((count + 1))
+		;;
+	esac
+done
+[ "$count" -eq 1 ] || die "$usage"
+
+case $name in
+'') die "a name is required. $usage" ;;
+[!a-z]* | *[!a-z0-9_]*) die "'$name' is not a role's name. Use a-z, 0-9 and _, and start with a letter." ;;
+esac
+[ "${#name}" -le 63 ] || die "'$name' is longer than 63 characters."
+case $name in
+postgres | pgbouncer_auth | public | pg_*) die "'$name' belongs to Postgres or its doors." ;;
+esac
+
+query() {
+	docker exec postgres-18 psql -v ON_ERROR_STOP=1 -X -tA -U postgres -d postgres -c "$1"
+}
+
+query "SELECT 1" >/dev/null 2>&1 ||
+	die "cannot reach postgres-18. Put compose/postgres.yml in COMPOSE_FILE, and run docker compose up -d."
+
+login=$(query "SELECT rolcanlogin FROM pg_roles WHERE rolname = '$name'")
+if [ -z "$login" ]; then
+	echo "There is no role $name. Nothing was dropped."
+	exit 0
+fi
+[ "$login" = f ] || die "$name is a user, and logs in. bin/remove-database --postgres $name drops a database's user. Nothing was dropped."
+
+users=$(query "SELECT string_agg(holder.rolname, ', ' ORDER BY holder.rolname) FROM pg_auth_members JOIN pg_roles granted ON granted.oid = pg_auth_members.roleid JOIN pg_roles holder ON holder.oid = pg_auth_members.member WHERE granted.rolname = '$name' AND holder.rolcanlogin")
+[ -z "$users" ] || die "$name is still held by these users: $users. A product may still use it. Nothing was dropped."
+
+databases=$(query "SELECT string_agg(DISTINCT pg_database.datname, ', ' ORDER BY pg_database.datname) FROM pg_shdepend JOIN pg_database ON pg_database.oid = pg_shdepend.dbid WHERE pg_shdepend.refclassid = 'pg_authid'::regclass AND pg_shdepend.refobjid = (SELECT oid FROM pg_roles WHERE rolname = '$name')")
+[ -z "$databases" ] || die "$name is still used in these databases: $databases. Nothing was dropped."
+
+query "DROP ROLE \"$name\"" >/dev/null
+echo "Dropped the role $name."

@@ -1,0 +1,82 @@
+x-windmill-environment: &windmill-environment
+  DATABASE_URL: postgres://windmill:${WINDMILL_DB_PASSWORD:?}@pgbouncer-session:5432/windmill?sslmode=disable
+  BASE_URL: ${SCHEME:?}://windmill.${DOMAIN:?}
+
+services:
+  windmill-server:
+    image: ghcr.io/windmill-labs/windmill:1.819.0
+    container_name: windmill-server
+    restart: unless-stopped
+    depends_on:
+      pgbouncer-session:
+        condition: service_healthy
+    environment:
+      <<: *windmill-environment
+      MODE: server
+    networks:
+      - postgres
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.windmill-server.rule=Host(`windmill.${DOMAIN:?}`)
+      - traefik.http.services.windmill-server.loadbalancer.server.port=8000
+      - traefik.docker.network=userland_traefik
+    volumes:
+      - windmill_logs:/tmp/windmill/logs
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8000/api/health/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    mem_limit: ${WINDMILL_SERVER_MEM_LIMIT:-0}
+
+  windmill-worker:
+    image: ghcr.io/windmill-labs/windmill:1.819.0
+    restart: unless-stopped
+    deploy:
+      replicas: ${WINDMILL_WORKER_REPLICAS:-2}
+    depends_on:
+      windmill-server:
+        condition: service_healthy
+      pgbouncer-session:
+        condition: service_healthy
+    environment:
+      <<: *windmill-environment
+      MODE: worker
+      WORKER_GROUP: default
+    networks:
+      - postgres
+    volumes:
+      - windmill_logs:/tmp/windmill/logs
+      - windmill_worker_cache:/tmp/windmill/cache
+    mem_limit: ${WINDMILL_WORKER_MEM_LIMIT:-0}
+
+  windmill-lsp:
+    image: ghcr.io/windmill-labs/windmill-extra:1.819.0
+    container_name: windmill-lsp
+    restart: unless-stopped
+    environment:
+      ENABLE_LSP: true
+      ENABLE_MULTIPLAYER: false
+      ENABLE_DEBUGGER: false
+      ENABLE_GATEWAY: false
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.windmill-lsp.rule=Host(`windmill.${DOMAIN:?}`) && PathPrefix(`/ws/`)
+      - traefik.http.services.windmill-lsp.loadbalancer.server.port=3001
+      - traefik.docker.network=userland_traefik
+    volumes:
+      - windmill_lsp_cache:/pyls/.cache
+    mem_limit: ${WINDMILL_LSP_MEM_LIMIT:-0}
+
+networks:
+  postgres: {}
+  traefik: {}
+
+volumes:
+  windmill_logs: {}
+  windmill_worker_cache: {}
+  windmill_lsp_cache: {}

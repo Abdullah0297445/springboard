@@ -1,6 +1,6 @@
 bats_require_minimum_version 1.5.0
 
-products=(postgres pgadmin clickhouse metabase n8n langfuse twenty archivist infisical)
+products=(postgres pgadmin clickhouse metabase n8n langfuse twenty windmill archivist infisical)
 
 setup() {
 	env_file="$BATS_TEST_TMPDIR/env"
@@ -41,6 +41,7 @@ TWENTY_S3_REGION=region-1
 TWENTY_S3_ENDPOINT=https://s3.example.test
 TWENTY_S3_ACCESS_KEY_ID=twenty-s3-key
 TWENTY_S3_SECRET_ACCESS_KEY=twenty-s3-secret
+WINDMILL_DB_PASSWORD=windmill-db-password
 ARCHIVIST_S3_BUCKET=archivist-bucket
 ARCHIVIST_S3_REGION=region-1
 ARCHIVIST_S3_ENDPOINT=https://s3.example.test
@@ -155,6 +156,19 @@ on_network() {
 	[[ "$output" == *'depends on undefined service "pgbouncer-session"'* ]]
 }
 
+@test "windmill runs with postgres, and is refused without it" {
+	run --separate-stderr config_of postgres windmill
+	[ "$status" -eq 0 ]
+	[ "$(services)" = "pgbouncer-session pgbouncer-transaction postgres-18 postgres-dumper traefik windmill-lsp windmill-server windmill-worker" ]
+	[ "$(jq -r '.services["windmill-worker"].deploy.replicas' <<<"$output")" = 2 ]
+	echo "WINDMILL_WORKER_REPLICAS=3" >>"$env_file"
+	run --separate-stderr config_of postgres windmill
+	[ "$(jq -r '.services["windmill-worker"].deploy.replicas' <<<"$output")" = 3 ]
+	run config_of windmill
+	[ "$status" -ne 0 ]
+	[[ "$output" == *'depends on undefined service "pgbouncer-session"'* ]]
+}
+
 @test "infisical runs with postgres, and is refused without it" {
 	run --separate-stderr config_of postgres infisical
 	[ "$status" -eq 0 ]
@@ -229,6 +243,13 @@ on_network() {
 	[ "$(published)" = "traefik *:80->80, traefik *:443->443" ]
 }
 
+@test "only traefik mounts the docker socket, and no container is privileged" {
+	run --separate-stderr config_of "${products[@]}" public
+	[ "$status" -eq 0 ]
+	[ "$(jq -r '[.services | to_entries[] | select(any(.value.volumes[]?; (.source // "") | endswith("docker.sock"))) | .key] | join(" ")' <<<"$output")" = "traefik" ]
+	[ "$(jq -r '[.services | to_entries[] | select(.value.privileged == true) | .key] | join(" ")' <<<"$output")" = "" ]
+}
+
 @test "every container another waits on has a healthcheck" {
 	run --separate-stderr config_of "${products[@]}"
 	[ "$status" -eq 0 ]
@@ -244,7 +265,7 @@ on_network() {
 	[[ " $(on_network postgres) " != *" postgres-18 "* ]]
 }
 
-@test "every container is named as its service, and takes a memory limit from its own variable" {
+@test "every container is named as its service, unless its service runs replicas, and takes a memory limit from its own variable" {
 	run --separate-stderr config_of "${products[@]}" public
 	local service
 	for service in $(services); do
@@ -254,7 +275,7 @@ on_network() {
 	done
 	run --separate-stderr config_of "${products[@]}" public
 	[ "$status" -eq 0 ]
-	[ "$(jq -r '[.services | to_entries[] | select(.value.container_name != .key) | .key] | join(" ")' <<<"$output")" = "" ]
+	[ "$(jq -r '[.services | to_entries[] | select(.value.deploy.replicas == null and .value.container_name != .key) | .key] | join(" ")' <<<"$output")" = "" ]
 	[ "$(jq -r '[.services | to_entries[] | select(.value.mem_limit != "67108864") | .key] | join(" ")' <<<"$output")" = "" ]
 }
 

@@ -384,6 +384,148 @@ It is a recovery key, so change your copy off the host too." ]]
 	[ "$output" = "There is no database ghost, and no user or role of that name. Nothing was dropped." ]
 }
 
+@test "add-pg-role makes a role that cannot log in, and its holder takes it" {
+	run --separate-stderr bin/add-database --postgres crew
+	[ "$status" -eq 0 ]
+	url=$(printed DATABASE_URL)
+	run --separate-stderr bin/add-pg-role --to crew crew_reader
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"The role crew_reader is made. It cannot log in."* ]]
+	[[ "$output" == *"It is held by: crew."* ]]
+	run superuser "SELECT rolcanlogin, rolbypassrls, rolsuper, rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname = 'crew_reader'"
+	[ "$output" = "f|f|f|f|f" ]
+	run connect "$url" "SET ROLE crew_reader; SELECT current_user"
+	[ "$status" -eq 0 ]
+	[ "$output" = "crew_reader" ]
+}
+
+@test "with --bypassrls, a role sees every row, and a role given to a role passes down the chain" {
+	run --separate-stderr bin/add-database --postgres mill
+	[ "$status" -eq 0 ]
+	url=$(printed DATABASE_URL)
+	run --separate-stderr bin/add-pg-role --bypassrls --to mill mill_admin
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"It sees every row, past row-level security."* ]]
+	run --separate-stderr bin/add-pg-role --to mill --to mill_admin mill_user
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"It is held by: mill, mill_admin."* ]]
+	run superuser "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'mill_admin'"
+	[ "$output" = "t" ]
+	run connect "$url" "CREATE TABLE jobs (id int); ALTER TABLE jobs ENABLE ROW LEVEL SECURITY; GRANT SELECT ON jobs TO mill_user; INSERT INTO jobs VALUES (1)"
+	[ "$status" -eq 0 ]
+	run connect "$url" "SET ROLE mill_user; SELECT count(*) FROM jobs"
+	[ "$status" -eq 0 ]
+	[ "$output" = "0" ]
+	run connect "$url" "SET ROLE mill_admin; SELECT count(*) FROM jobs"
+	[ "$status" -eq 0 ]
+	[ "$output" = "1" ]
+}
+
+@test "add-pg-role refuses a role that exists, a missing holder, a superuser, the doors and a bad name, and changes nothing" {
+	run --separate-stderr bin/add-database --postgres dock
+	[ "$status" -eq 0 ]
+	run --separate-stderr bin/add-pg-role --to dock dock_crew
+	[ "$status" -eq 0 ]
+	run --separate-stderr bin/add-pg-role --to dock dock_crew
+	[ "$status" -eq 1 ]
+	[[ "$stderr" == *"dock_crew already exists, as a user or a role. Nothing was changed."* ]]
+	run --separate-stderr bin/add-pg-role --to dock dock
+	[ "$status" -eq 1 ]
+	run --separate-stderr bin/add-pg-role dock_spare
+	[ "$status" -eq 1 ]
+	[[ "$stderr" == *"name who holds it, with --to."* ]]
+	run --separate-stderr bin/add-pg-role --to ghost dock_spare
+	[ "$status" -eq 1 ]
+	[[ "$stderr" == *"there is no user or role ghost to hold it. Nothing was changed."* ]]
+	run --separate-stderr bin/add-pg-role --to dock --to ghost dock_spare
+	[ "$status" -eq 1 ]
+	run --separate-stderr bin/add-pg-role --to postgres dock_spare
+	[ "$status" -eq 1 ]
+	[[ "$stderr" == *"'postgres' belongs to Postgres or its doors."* ]]
+	run --separate-stderr bin/add-pg-role --to pgbouncer_auth dock_spare
+	[ "$status" -eq 1 ]
+	run --separate-stderr bin/add-pg-role --to dock_spare dock_spare
+	[ "$status" -eq 1 ]
+	run --separate-stderr bin/add-pg-role --login --to dock dock_spare
+	[ "$status" -eq 1 ]
+	run --separate-stderr bin/add-pg-role dock_spare --to
+	[ "$status" -eq 1 ]
+	run --separate-stderr bin/add-pg-role --to dock
+	[ "$status" -eq 1 ]
+	[[ "$stderr" == *"usage: bin/add-pg-role [--bypassrls] --to HOLDER [--to HOLDER ...] NAME"* ]]
+	run --separate-stderr bin/add-pg-role --to dock dock_one dock_two
+	[ "$status" -eq 1 ]
+	local long name
+	long=$(printf 'a%.0s' {1..64})
+	for name in '' my-app MyApp 1app "$long" "my'app" 'my app' postgres pgbouncer_auth public pg_app; do
+		run --separate-stderr bin/add-pg-role --to dock "$name"
+		[ "$status" -eq 1 ]
+		run --separate-stderr bin/add-pg-role --to "$name" dock_spare
+		[ "$status" -eq 1 ]
+	done
+	run superuser "SELECT string_agg(rolname, ' ' ORDER BY rolname) FROM pg_roles WHERE rolname LIKE 'dock%' OR rolname LIKE 'aaaaaaaa%' OR rolname LIKE 'my%'"
+	[ "$output" = "dock dock_crew" ]
+	run superuser "SELECT count(*) FROM pg_auth_members WHERE member = 'pgbouncer_auth'::regrole"
+	[ "$output" = "0" ]
+}
+
+@test "remove-pg-role refuses a user, a role a user holds and a role a database uses, and drops it once neither is left" {
+	run --separate-stderr bin/add-database --postgres yard
+	[ "$status" -eq 0 ]
+	url=$(printed DATABASE_URL)
+	run --separate-stderr bin/add-pg-role --to yard yard_crew
+	[ "$status" -eq 0 ]
+	run --separate-stderr bin/add-pg-role --to yard yard_seen
+	[ "$status" -eq 0 ]
+	run connect "$url" "CREATE TABLE seen (id int); GRANT SELECT ON seen TO yard_seen"
+	[ "$status" -eq 0 ]
+	superuser "REVOKE yard_seen FROM yard"
+
+	run --separate-stderr bin/remove-pg-role yard_crew
+	[ "$status" -eq 1 ]
+	[[ "$stderr" == *"yard_crew is still held by these users: yard. A product may still use it. Nothing was dropped."* ]]
+	run --separate-stderr bin/remove-pg-role yard_seen
+	[ "$status" -eq 1 ]
+	[[ "$stderr" == *"yard_seen is still used in these databases: yard. Nothing was dropped."* ]]
+	run --separate-stderr bin/remove-pg-role yard
+	[ "$status" -eq 1 ]
+	[[ "$stderr" == *"yard is a user, and logs in."* ]]
+	run superuser "SELECT count(*) FROM pg_roles WHERE rolname LIKE 'yard%'"
+	[ "$output" = "3" ]
+	run connect "$url" "SET ROLE yard_crew; SELECT current_user"
+	[ "$output" = "yard_crew" ]
+
+	run --separate-stderr bin/remove-database --postgres yard <<<"yard"
+	[ "$status" -eq 0 ]
+	run --separate-stderr bin/remove-pg-role yard_crew
+	[ "$status" -eq 0 ]
+	[ "$output" = "Dropped the role yard_crew." ]
+	run --separate-stderr bin/remove-pg-role yard_seen
+	[ "$status" -eq 0 ]
+	run superuser "SELECT count(*) FROM pg_roles WHERE rolname LIKE 'yard%'"
+	[ "$output" = "0" ]
+	run --separate-stderr bin/remove-pg-role yard_crew
+	[ "$status" -eq 0 ]
+	[ "$output" = "There is no role yard_crew. Nothing was dropped." ]
+}
+
+@test "remove-pg-role refuses a bad name, an option and two names, and prints its usage" {
+	local name
+	for name in '' my-app MyApp 1app "my'app" postgres pgbouncer_auth public pg_monitor; do
+		run --separate-stderr bin/remove-pg-role "$name"
+		[ "$status" -eq 1 ]
+	done
+	run --separate-stderr bin/remove-pg-role
+	[ "$status" -eq 1 ]
+	[[ "$stderr" == *"usage: bin/remove-pg-role NAME"* ]]
+	run --separate-stderr bin/remove-pg-role one two
+	[ "$status" -eq 1 ]
+	run --separate-stderr bin/remove-pg-role --postgres one
+	[ "$status" -eq 1 ]
+	run superuser "SELECT count(*) FROM pg_roles WHERE rolname = 'pg_monitor'"
+	[ "$output" = "1" ]
+}
+
 @test "a run archives the globals and every database, and a database added later is archived without being named" {
 	run --separate-stderr bin/add-database --postgres ledger
 	[ "$status" -eq 0 ]

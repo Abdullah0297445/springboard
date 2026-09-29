@@ -29,6 +29,7 @@ runs *for you*. This repo is that layer, for one host.
 | **n8n** | `compose/n8n.yml` | n8n and n8n-runners. |
 | **langfuse** | `compose/langfuse.yml` | langfuse-web, langfuse-worker and langfuse-redis. |
 | **twenty** | `compose/twenty.yml` | twenty-server, twenty-worker and twenty-redis. |
+| **windmill** | `compose/windmill.yml` | windmill-server, two windmill-workers and windmill-lsp. |
 | **archivist** | `compose/archivist.yml` | archivist. It takes every archive the dumpers write off the host, into a bucket of its own, as [restic](https://restic.net) snapshots under a master key that never touches the host. |
 | **infisical** | `compose/infisical.yml` | infisical and infisical-redis. It keeps the real copy of userland's `.env`, which `bin/up` writes from it. |
 
@@ -209,9 +210,10 @@ bin/random-secret
 bin/random-secret 32
 ```
 
-**Memory limits.** Every container reads `<CONTAINER>_MEM_LIMIT`: its name in capitals, with
-`-` made `_`, such as `LANGFUSE_WEB_MEM_LIMIT=2g`. Unset or `0` means no limit. Each product's
-table lists its own.
+**Memory limits.** Every container reads `<CONTAINER>_MEM_LIMIT`: its service's name in
+capitals, with `-` made `_`, such as `LANGFUSE_WEB_MEM_LIMIT=2g`. Unset or `0` means no limit.
+A service that runs replicas gives each of them the same limit. Each product's table lists its
+own.
 
 ## Provisioning
 
@@ -220,7 +222,7 @@ starts. A product's database is made the same way as a consumer's. Nothing makes
 own, and nothing changes one afterwards: a new password is given by hand too. On a new host,
 the databases come back from the archive, under *Bringing a host back*, so none is made there.
 
-Three helpers in `bin/` do it. They run on the host, from the root of the repo. They need only
+Five helpers in `bin/` do it. They run on the host, from the root of the repo. They need only
 docker, and `postgres-18` or `clickhouse` up.
 
 ```sh
@@ -230,12 +232,16 @@ bin/add-database --postgres --api myapp
 bin/add-database --clickhouse myapp
 bin/new-password --postgres myapp
 bin/remove-database --postgres myapp
+bin/add-pg-role --to myapp myapp_reader
+bin/remove-pg-role myapp_reader
 ```
 
 Each names its datastore, `--postgres` or `--clickhouse`: one of them, always, as `bin/restore`
 and `bin/rebuild` do. Without one, or with both, it is refused and changes nothing.
+`add-pg-role` and `remove-pg-role` are for Postgres alone. Their names say so, and they take
+neither flag.
 
-**No helper writes into Infisical.** These three never reach it at all. Each prints every line
+**No helper writes into Infisical.** These five never reach it at all. Each prints every line
 it makes once, and you put it where it goes. A helper cannot tell a product's database from a
 consumer's, so it prints both lines, and you take the one you need:
 
@@ -254,6 +260,7 @@ it goes. Compose refuses a product whose variable is missing, so the product goe
 | n8n | `bin/add-database --postgres n8n`, then the one line under *n8n* | `N8N_DB_PASSWORD` |
 | langfuse | `bin/add-database --postgres langfuse` and `bin/add-database --clickhouse langfuse` | `LANGFUSE_DB_PASSWORD` and `LANGFUSE_CLICKHOUSE_PASSWORD` |
 | twenty | `bin/add-database --postgres twenty` | `TWENTY_DB_PASSWORD` |
+| windmill | `bin/add-database --postgres windmill`, then the two lines under *Windmill* | `WINDMILL_DB_PASSWORD` |
 | infisical | `bin/add-database --postgres infisical` | `INFISICAL_DB_PASSWORD` |
 
 ### Making a database
@@ -334,6 +341,35 @@ Infisical, or from `.env` on a host without Infisical.
 - On Postgres the drop is `WITH (FORCE)`, because the doors keep pooled connections open to
   the database.
 - On ClickHouse the drop is `SYNC`, so the name can be used again at once.
+
+### A role
+
+A **role** cannot log in. A user holds it, or another role does, and takes it with `SET ROLE`.
+It belongs to the whole of Postgres, not to one database. A product that needs one says so in
+its section, and you make it by hand, after its database.
+
+**`bin/add-pg-role --to HOLDER NAME`** makes the role `NAME`, and gives it to `HOLDER`. Give
+`--to` more than once for more holders. It prints no secret, since a role has no password.
+
+- A holder is a user or another role, and it must exist first.
+- A role given to another role passes down: whoever holds the second holds the first too.
+- `--bypassrls` lets the role see every row, past row-level security. Only the superuser can
+  make a role like that, which is why a helper makes it and not the product.
+- A role never logs in, is never a superuser, and never makes roles or databases.
+- A name follows the rule for a database's name. A name that exists, as a user or a role, is
+  refused, and nothing is changed. So is a name that belongs to Postgres or its doors, a holder
+  that does not exist, and `postgres` or `pgbouncer_auth` as a holder.
+
+**`bin/remove-pg-role NAME`** drops one role. A role holds no rows, so it does not ask you to
+type the name. It refuses, and drops nothing, while:
+
+- a user still holds it, because a product may still use it;
+- a database still uses it, for example when a table grants it a right;
+- `NAME` is a user. `bin/remove-database` drops a user, with its database.
+
+The archive of the globals keeps every role, and who holds it, so a rebuild brings them back.
+`bin/remove-database` drops only the roles `bin/add-database` made. A product's other roles
+stay until you drop them.
 
 ### The doors' auth user
 
@@ -957,6 +993,117 @@ Everything else, telemetry and the marketplace's catalogue included, runs at twe
 | `TWENTY_WORKER_MEM_LIMIT` | default no limit | Memory limit of `twenty-worker`. |
 | `TWENTY_REDIS_MEM_LIMIT` | default no limit | Memory limit of `twenty-redis`. |
 
+## Windmill
+
+Windmill runs scripts and flows, and has a web editor for them. It is three services, always
+on together:
+
+- `windmill-server` is the web UI and the API.
+- `windmill-worker` runs every job: each script, each step of a flow and each schedule. Two
+  workers run by default, both in the worker group `default`. `WINDMILL_WORKER_REPLICAS` sets
+  how many. They are replicas of one service, so compose names each one itself, such as
+  `userland-windmill-worker-1`.
+- `windmill-lsp` gives the code editor its hints. The browser reaches it under
+  `windmill.DOMAIN/ws/`. traefik sends everything else to the server.
+
+The server and the workers run one image. The LSP runs Windmill's second image,
+`windmill-extra`, with only its LSP switched on. **All three run one version**, and every
+upgrade moves all three.
+
+**The session door, and why.** At every start, the server and each worker take a
+session-level advisory lock, and hold it across many statements. On each new connection,
+Windmill also sends `SET` commands. The transaction door breaks both. So every Windmill
+connection goes through `pgbouncer-session`. The server's pool holds up to 50 connections, and
+each worker's up to 5. Each opens a connection only when it needs one. With two workers that is
+60, which fits under the session door's 100. Each more worker adds 5.
+
+**Make its database and its two roles before the first `up`.** Windmill keeps its data behind
+row-level security. For each request it takes one of two roles: `windmill_admin` for an admin,
+and `windmill_user` for everyone else. `windmill_admin` sees every row, and only the superuser
+can make a role like that. So you make both, after the database, under *A role*:
+
+```sh
+bin/add-database --postgres windmill
+bin/add-pg-role --bypassrls --to windmill windmill_admin
+bin/add-pg-role --to windmill --to windmill_admin windmill_user
+```
+
+The order matters: `windmill_admin` must exist before `windmill_user` is given to it.
+
+- Windmill's first start gives `windmill_user` its rights on every table. It does that as the
+  `windmill` user, which owns the tables. Windmill's own docs list more statements for this
+  step, but on an empty database they do nothing.
+- Windmill's first start also tries to make both roles. They exist, so it goes on.
+- Some optional features make databases or roles of their own, such as DuckLake and data
+  tables on the instance's Postgres. The `windmill` user cannot, so Windmill skips them.
+  Scripts, flows, apps, schedules and the job queue need none of it.
+
+**Change the first login straight after `up`.** Windmill's first start makes one login:
+`admin@windmill.dev`, with the password `changeme`. No variable changes it. Until you change
+it, the login page fills both in by itself. So sign in the moment Windmill is healthy, and
+change the email and the password. This matters most in public visibility: traefik's
+certificate for `windmill.` under your domain shows in public certificate logs within minutes.
+
+**The workers run your code.** Anyone who can write a script in Windmill runs code inside a
+worker. That code reaches what the worker reaches: the internet, and every container on
+`userland_postgres`. So give that right only to people you trust.
+
+- No worker has the docker socket, because it would make any script root on the host. So
+  Docker jobs do not run.
+- No worker is privileged. Windmill's own compose file runs them privileged, to give each job
+  a process space of its own. Here each worker logs `Unshare isolation will NOT be available`
+  at start, and runs jobs without it.
+
+**Secrets.** `WINDMILL_DB_PASSWORD` is the only one in `.env`, and losing it loses nothing:
+`bin/new-password --postgres windmill` gives a new one. Windmill encrypts each workspace's
+secret variables with that workspace's own key, and keeps the keys in its database. So the
+archive of Postgres is enough to read them again. Two variables stay unset:
+
+- `SECRET_SALT`. If set, it is mixed into every workspace's key, and losing it makes every
+  secret variable unreadable.
+- `SUPERADMIN_SECRET`. If set, it is an API token with full power.
+
+**The volumes need no backup.** Scripts, flows, apps, resources, secret variables and the job
+queue are all in Postgres.
+
+- `windmill_logs` holds the older part of a long job's log. The workers write it and the server
+  reads it, so all of them mount it. Losing it loses only those older parts.
+- `windmill_worker_cache` holds the packages jobs download. The workers share it. The next job
+  downloads them again.
+- `windmill_lsp_cache` holds the editor's hint data.
+
+**Health.** The server's healthcheck asks `/api/health/status`, which needs no login. It
+answers 503 only when Windmill is unhealthy, for example when it cannot reach its database.
+The workers wait for it, so the server runs the migrations first. Nothing waits for the workers
+or the LSP, so they have no healthcheck.
+
+**Removing it.** Take it out of `COMPOSE_FILE` and run `up`. Then drop its database, and its
+two roles after it:
+
+```sh
+bin/remove-database --postgres windmill
+bin/remove-pg-role windmill_admin
+bin/remove-pg-role windmill_user
+```
+
+The roles belong to the whole of Postgres, so dropping the database leaves them.
+`remove-pg-role` refuses while the `windmill` user still holds them.
+
+**Upgrading.** The three tags are exact, and Windmill ships a release almost every day. So
+move them on purpose. The next start runs the new version's migrations. Read the release notes
+between the two versions, take a fresh archive with `docker exec postgres-dumper dumper now`,
+then move all three tags together.
+
+The pools, the worker's settings and every other number run at Windmill's defaults.
+
+| Variable | Needed | Meaning |
+|---|---|---|
+| `WINDMILL_DB_PASSWORD` | required | Password of the `windmill` user on Postgres, which owns the `windmill` database. |
+| `WINDMILL_SERVER_MEM_LIMIT` | default no limit | Memory limit of `windmill-server`. |
+| `WINDMILL_WORKER_REPLICAS` | default `2` | How many workers run. |
+| `WINDMILL_WORKER_MEM_LIMIT` | default no limit | Memory limit of each worker. |
+| `WINDMILL_LSP_MEM_LIMIT` | default no limit | Memory limit of `windmill-lsp`. |
+
 ## The archivist
 
 The archivist keeps off this host what you cannot lose with it: every database on Postgres and
@@ -1493,10 +1640,12 @@ asserts:
   `DNS_PROVIDER` in public;
 - Infisical's address and its secure cookies follow the visibility;
 - no port is published but traefik's 80, and its 443 in public;
+- only traefik mounts the docker socket, and no container is privileged;
 - every container another waits on has a healthcheck;
 - consumers join `userland_postgres`, `userland_clickhouse` and `userland_traefik`, and
   `postgres-18` is not on `userland_postgres`;
-- every container is named as its service, and takes its memory limit from its own variable;
+- every container is named as its service, unless its service runs replicas, and takes its
+  memory limit from its own variable;
 - this README names every variable compose reports;
 - every file in `compose/` is a product the tests know, or `public.yml`.
 
@@ -1519,6 +1668,12 @@ asserts:
 - after `bin/new-password --postgres pgbouncer_auth` and an `up` with the printed line, both
   doors let users in, and the line is named a recovery key;
 - new-password refuses the superuser, a user without its database, an anon role and a bad name;
+- `add-pg-role` makes a role that cannot log in, and its holder takes it. With `--bypassrls` it
+  sees every row, and a role given to a role passes down the chain;
+- `add-pg-role` refuses a role that exists, a missing holder, a superuser, the doors and a bad
+  name, and changes nothing;
+- `remove-pg-role` refuses a user, a role a user holds and a role a database uses, and drops the
+  role once neither is left;
 - each helper names its datastore, one of the two, and without one, or with both, changes
   nothing;
 - a run of `postgres-dumper` archives the globals and every database, and a database added
@@ -1659,7 +1814,7 @@ nightly on `main`, and by hand from the repo's Actions tab, or with `gh workflow
 | `compose/` | One file per product, and `public.yml`, which turns traefik public. |
 | `test/` | The bats tests of the quick check. `test/e2e/` holds the end-to-end run's, and `test/e2e/stand-in/` what they put in place of a real program. |
 | `scripts/` | Shell that runs inside a container: the archivist's loop and commands, its password command, and the dumper both datastores run. Nothing here runs on the host. |
-| `bin/` | Helpers that run on the host, in POSIX sh, needing only docker: `up`, `add-database`, `new-password`, `remove-database`, `restore`, `rebuild` and `random-secret`. |
+| `bin/` | Helpers that run on the host, in POSIX sh, needing only docker: `up`, `add-database`, `new-password`, `remove-database`, `add-pg-role`, `remove-pg-role`, `restore`, `rebuild` and `random-secret`. |
 | `Dockerfile` | The archivist's image, the only one this repo builds: restic, and a reader for the secret store. |
 | `ssmget/` | That reader, a small Go module of its own. |
 | `initdb/` | First-start initialisation for Postgres. Runs once, against an empty volume, and never again. `door-auth.sh` makes the doors' auth user. |
@@ -1673,7 +1828,9 @@ nightly on `main`, and by hand from the repo's Actions tab, or with `gh workflow
 
 A product is one file, `compose/<product>.yml`. In it, every container:
 
-- sets `container_name` to its service's name, and `restart: unless-stopped`;
+- sets `container_name` to its service's name, and `restart: unless-stopped`. A service that
+  runs replicas sets no `container_name`: compose names each replica itself, and refuses one
+  fixed name for several;
 - waits in `depends_on`, with `condition: service_healthy`, for every container it needs,
   even one in another product. Compose then refuses the product without that one;
 - joins only the networks it talks on. A product gets a network of its own only when its
@@ -1692,7 +1849,8 @@ at the bottom of the file. Declaring one in two files is fine: compose merges th
 
 A product with a database reads its password as `<PRODUCT>_DB_PASSWORD`, or
 `<PRODUCT>_CLICKHOUSE_PASSWORD` on ClickHouse, because those are the lines `bin/add-database`
-prints. Give it a row in the table under *Provisioning*.
+prints. Give it a row in the table under *Provisioning*. A role it needs besides its user is
+made by hand with `bin/add-pg-role`, and its section gives the lines.
 
 A new datastore gets a dumper of its own, as Postgres and ClickHouse do: a container on the
 server's image that runs `scripts/dumper` and mounts `backups`. `scripts/dumper` then needs that
