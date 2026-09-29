@@ -1,6 +1,6 @@
 bats_require_minimum_version 1.5.0
 
-products=(postgres pgadmin clickhouse metabase n8n langfuse twenty archivist infisical)
+products=(postgres pgadmin clickhouse metabase n8n langfuse twenty windmill archivist infisical)
 
 setup() {
 	env_file="$BATS_TEST_TMPDIR/env"
@@ -41,6 +41,7 @@ TWENTY_S3_REGION=region-1
 TWENTY_S3_ENDPOINT=https://s3.example.test
 TWENTY_S3_ACCESS_KEY_ID=twenty-s3-key
 TWENTY_S3_SECRET_ACCESS_KEY=twenty-s3-secret
+WINDMILL_DB_PASSWORD=windmill-db-password
 ARCHIVIST_S3_BUCKET=archivist-bucket
 ARCHIVIST_S3_REGION=region-1
 ARCHIVIST_S3_ENDPOINT=https://s3.example.test
@@ -155,6 +156,15 @@ on_network() {
 	[[ "$output" == *'depends on undefined service "pgbouncer-session"'* ]]
 }
 
+@test "windmill runs with postgres, and is refused without it" {
+	run --separate-stderr config_of postgres windmill
+	[ "$status" -eq 0 ]
+	[ "$(services)" = "pgbouncer-session pgbouncer-transaction postgres-18 postgres-dumper traefik windmill-lsp windmill-server windmill-worker" ]
+	run config_of windmill
+	[ "$status" -ne 0 ]
+	[[ "$output" == *'depends on undefined service "pgbouncer-session"'* ]]
+}
+
 @test "infisical runs with postgres, and is refused without it" {
 	run --separate-stderr config_of postgres infisical
 	[ "$status" -eq 0 ]
@@ -227,6 +237,13 @@ on_network() {
 @test "in public, only traefik publishes ports, 80 and 443" {
 	run --separate-stderr config_of "${products[@]}" public
 	[ "$(published)" = "traefik *:80->80, traefik *:443->443" ]
+}
+
+@test "only traefik mounts the docker socket, and no container is privileged" {
+	run --separate-stderr config_of "${products[@]}" public
+	[ "$status" -eq 0 ]
+	[ "$(jq -r '[.services | to_entries[] | select(any(.value.volumes[]?; (.source // "") | endswith("docker.sock"))) | .key] | join(" ")' <<<"$output")" = "traefik" ]
+	[ "$(jq -r '[.services | to_entries[] | select(.value.privileged == true) | .key] | join(" ")' <<<"$output")" = "" ]
 }
 
 @test "every container another waits on has a healthcheck" {

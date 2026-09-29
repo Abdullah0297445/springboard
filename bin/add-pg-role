@@ -1,0 +1,85 @@
+#!/bin/sh
+set -eu
+export LC_ALL=C
+
+usage="usage: bin/add-pg-role [--bypassrls] --to HOLDER [--to HOLDER ...] NAME"
+
+die() {
+	echo "add-pg-role: $1" >&2
+	exit 1
+}
+
+check_name() {
+	case $1 in
+	'') die "a name is required. $usage" ;;
+	[!a-z]* | *[!a-z0-9_]*) die "'$1' is not a role's or a user's name. Use a-z, 0-9 and _, and start with a letter." ;;
+	esac
+	[ "${#1}" -le 63 ] || die "'$1' is longer than 63 characters."
+	case $1 in
+	postgres | pgbouncer_auth | public | pg_*) die "'$1' belongs to Postgres or its doors." ;;
+	esac
+}
+
+bypassrls=
+holders=
+name=
+count=0
+while [ "$#" -gt 0 ]; do
+	case $1 in
+	--bypassrls) bypassrls=1 ;;
+	--to)
+		[ "$#" -gt 1 ] || die "--to needs the user or role that holds it. $usage"
+		check_name "$2"
+		holders="$holders $2"
+		shift
+		;;
+	-*) die "$1 is not an option. $usage" ;;
+	*)
+		name=$1
+		count=$((count + 1))
+		;;
+	esac
+	shift
+done
+[ "$count" -eq 1 ] || die "$usage"
+check_name "$name"
+[ -n "$holders" ] || die "name who holds it, with --to. A role nobody holds does nothing. $usage"
+
+run() {
+	docker exec -i postgres-18 psql -v ON_ERROR_STOP=1 -X --quiet -U postgres -d postgres
+}
+
+query() {
+	docker exec postgres-18 psql -v ON_ERROR_STOP=1 -X -tA -U postgres -d postgres -c "$1"
+}
+
+query "SELECT 1" >/dev/null 2>&1 ||
+	die "cannot reach postgres-18. Put compose/postgres.yml in COMPOSE_FILE, and run docker compose up -d."
+
+[ -z "$(query "SELECT 1 FROM pg_roles WHERE rolname = '$name'")" ] ||
+	die "$name already exists, as a user or a role. Nothing was changed."
+
+grantees=
+for holder in $holders; do
+	[ "$holder" != "$name" ] || die "$name cannot hold itself. Nothing was changed."
+	superuser=$(query "SELECT rolsuper FROM pg_roles WHERE rolname = '$holder'")
+	[ -n "$superuser" ] || die "there is no user or role $holder to hold it. Nothing was changed."
+	[ "$superuser" = f ] || die "$holder is a superuser, and holds every role already. Nothing was changed."
+	grantees="$grantees${grantees:+, }\"$holder\""
+done
+
+attributes=NOLOGIN
+[ -z "$bypassrls" ] || attributes="NOLOGIN BYPASSRLS"
+
+run <<SQL
+BEGIN;
+CREATE ROLE "$name" $attributes;
+GRANT "$name" TO $grantees;
+COMMIT;
+SQL
+
+echo "The role $name is made. It cannot log in."
+[ -z "$bypassrls" ] || echo "It sees every row, past row-level security."
+echo "It is held by:$(echo "$holders" | sed 's/ /, /g; s/^,//')."
+echo
+echo "It belongs to the whole of Postgres, not to one database. bin/remove-pg-role $name drops it."

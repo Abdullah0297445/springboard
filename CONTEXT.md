@@ -79,9 +79,9 @@ own admin's: it may live in Infisical, in a project of its own, but no helper re
 _Avoid_: tenant, client, app, application
 
 **Provisioning**:
-Making the user and database a product or a consumer needs, before it first runs. It is done
-once, by hand, with a helper, and the same way for both. Nothing changes a database or its
-user on its own afterwards: a new password is given by hand too.
+Making the user, the database and any role a product or a consumer needs, before it first
+runs. It is done once, by hand, with a helper, and the same way for both. Nothing changes a
+database or its user on its own afterwards: a new password is given by hand too.
 _Avoid_: seeding, bootstrapping, init, setup, migration, converging
 
 **Helper**:
@@ -124,6 +124,12 @@ The one login a database is reached through. It carries the database's name, own
 reaches no other database. Postgres calls a user that can log in a role; here it is a user.
 _Avoid_: tenant, role (for this), account, owner (as its name)
 
+**Role**:
+A Postgres role that cannot log in, held by a user or by another role. It belongs to the whole
+of Postgres, not to one database. A product that needs one has it made by provisioning, as its
+database is. PostgREST's anon role is one.
+_Avoid_: group, group role, user (for this)
+
 **Superuser**:
 The single Postgres superuser that provisions databases and that the dumper archives them
 as. No other user holds it. On ClickHouse the same seat is the user `default`, which
@@ -161,9 +167,10 @@ archives stay until someone removes them with restic, from a machine whose key m
 _Avoid_: expiry, lifecycle (for the concept), cleanup, pruning
 
 **Globals**:
-What a datastore holds outside every database: its users and their passwords, and on
-ClickHouse their grants too. One archive holds them for the whole datastore. It is as
-sensitive as the data, and it goes only into a datastore being rebuilt.
+What a datastore holds outside every database: its users and their passwords, its roles
+and who holds each, and on ClickHouse the users' grants too. One archive holds them for the
+whole datastore. It is as sensitive as the data, and it goes only into a datastore being
+rebuilt.
 _Avoid_: users, roles file, cluster objects
 
 **Drill**:
