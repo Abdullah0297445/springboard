@@ -235,9 +235,10 @@ on_network() {
 	[ "$(waited_on_without_healthcheck)" = "" ]
 }
 
-@test "consumers join userland_postgres and userland_traefik, and reach Postgres only through a door" {
+@test "consumers join userland_postgres, userland_clickhouse and userland_traefik, and reach Postgres only through a door" {
 	run --separate-stderr config_of "${products[@]}"
 	[ "$(jq -r '.networks.postgres.name' <<<"$output")" = userland_postgres ]
+	[ "$(jq -r '.networks.clickhouse.name' <<<"$output")" = userland_clickhouse ]
 	[ "$(jq -r '.networks.traefik.name' <<<"$output")" = userland_traefik ]
 	[ "$(on_network postgres-server)" = "pgadmin pgbouncer-session pgbouncer-transaction postgres-18 postgres-dumper" ]
 	[[ " $(on_network postgres) " != *" postgres-18 "* ]]
