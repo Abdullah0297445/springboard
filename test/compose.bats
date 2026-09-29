@@ -1,6 +1,6 @@
 bats_require_minimum_version 1.5.0
 
-products=(postgres pgadmin clickhouse metabase n8n langfuse twenty windmill archivist infisical)
+products=(postgres pgadmin clickhouse metabase n8n langfuse twenty windmill litellm archivist infisical)
 
 setup() {
 	env_file="$BATS_TEST_TMPDIR/env"
@@ -42,6 +42,9 @@ TWENTY_S3_ENDPOINT=https://s3.example.test
 TWENTY_S3_ACCESS_KEY_ID=twenty-s3-key
 TWENTY_S3_SECRET_ACCESS_KEY=twenty-s3-secret
 WINDMILL_DB_PASSWORD=windmill-db-password
+LITELLM_DB_PASSWORD=litellm-db-password
+LITELLM_MASTER_KEY=sk-litellm-master-key
+LITELLM_SALT_KEY=litellm-salt-key
 ARCHIVIST_S3_BUCKET=archivist-bucket
 ARCHIVIST_S3_REGION=region-1
 ARCHIVIST_S3_ENDPOINT=https://s3.example.test
@@ -167,6 +170,15 @@ on_network() {
 	run config_of windmill
 	[ "$status" -ne 0 ]
 	[[ "$output" == *'depends on undefined service "pgbouncer-session"'* ]]
+}
+
+@test "litellm runs with postgres, and is refused without it" {
+	run --separate-stderr config_of postgres litellm
+	[ "$status" -eq 0 ]
+	[ "$(services)" = "litellm pgbouncer-session pgbouncer-transaction postgres-18 postgres-dumper traefik" ]
+	run config_of litellm
+	[ "$status" -ne 0 ]
+	[[ "$output" == *'service "litellm" depends on undefined service "pgbouncer-session"'* ]]
 }
 
 @test "infisical runs with postgres, and is refused without it" {
