@@ -160,6 +160,10 @@ on_network() {
 	run --separate-stderr config_of postgres windmill
 	[ "$status" -eq 0 ]
 	[ "$(services)" = "pgbouncer-session pgbouncer-transaction postgres-18 postgres-dumper traefik windmill-lsp windmill-server windmill-worker" ]
+	[ "$(jq -r '.services["windmill-worker"].deploy.replicas' <<<"$output")" = 2 ]
+	echo "WINDMILL_WORKER_REPLICAS=3" >>"$env_file"
+	run --separate-stderr config_of postgres windmill
+	[ "$(jq -r '.services["windmill-worker"].deploy.replicas' <<<"$output")" = 3 ]
 	run config_of windmill
 	[ "$status" -ne 0 ]
 	[[ "$output" == *'depends on undefined service "pgbouncer-session"'* ]]
@@ -261,7 +265,7 @@ on_network() {
 	[[ " $(on_network postgres) " != *" postgres-18 "* ]]
 }
 
-@test "every container is named as its service, and takes a memory limit from its own variable" {
+@test "every container is named as its service, unless its service runs replicas, and takes a memory limit from its own variable" {
 	run --separate-stderr config_of "${products[@]}" public
 	local service
 	for service in $(services); do
@@ -271,7 +275,7 @@ on_network() {
 	done
 	run --separate-stderr config_of "${products[@]}" public
 	[ "$status" -eq 0 ]
-	[ "$(jq -r '[.services | to_entries[] | select(.value.container_name != .key) | .key] | join(" ")' <<<"$output")" = "" ]
+	[ "$(jq -r '[.services | to_entries[] | select(.value.deploy.replicas == null and .value.container_name != .key) | .key] | join(" ")' <<<"$output")" = "" ]
 	[ "$(jq -r '[.services | to_entries[] | select(.value.mem_limit != "67108864") | .key] | join(" ")' <<<"$output")" = "" ]
 }
 

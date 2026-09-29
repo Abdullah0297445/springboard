@@ -17,8 +17,9 @@ Postgres without pgadmin is a valid choice.
 _Avoid_: stack, bundle, service, module, app
 
 **Container**:
-One compose service. Every container belongs to exactly one product, and is switched on and
-off with it, never alone.
+One running copy of a compose service. A service runs one, unless it asks for replicas: then
+it runs several alike, such as Windmill's workers. Every container belongs to exactly one
+product, and is switched on and off with it, never alone.
 _Avoid_: service, unit, component, module, profile
 
 **Selection**:

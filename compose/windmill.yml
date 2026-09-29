@@ -33,8 +33,9 @@ services:
 
   windmill-worker:
     image: ghcr.io/windmill-labs/windmill:1.819.0
-    container_name: windmill-worker
     restart: unless-stopped
+    deploy:
+      replicas: ${WINDMILL_WORKER_REPLICAS:-2}
     depends_on:
       windmill-server:
         condition: service_healthy

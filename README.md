@@ -29,7 +29,7 @@ runs *for you*. This repo is that layer, for one host.
 | **n8n** | `compose/n8n.yml` | n8n and n8n-runners. |
 | **langfuse** | `compose/langfuse.yml` | langfuse-web, langfuse-worker and langfuse-redis. |
 | **twenty** | `compose/twenty.yml` | twenty-server, twenty-worker and twenty-redis. |
-| **windmill** | `compose/windmill.yml` | windmill-server, windmill-worker and windmill-lsp. |
+| **windmill** | `compose/windmill.yml` | windmill-server, two windmill-workers and windmill-lsp. |
 | **archivist** | `compose/archivist.yml` | archivist. It takes every archive the dumpers write off the host, into a bucket of its own, as [restic](https://restic.net) snapshots under a master key that never touches the host. |
 | **infisical** | `compose/infisical.yml` | infisical and infisical-redis. It keeps the real copy of userland's `.env`, which `bin/up` writes from it. |
 
@@ -210,9 +210,10 @@ bin/random-secret
 bin/random-secret 32
 ```
 
-**Memory limits.** Every container reads `<CONTAINER>_MEM_LIMIT`: its name in capitals, with
-`-` made `_`, such as `LANGFUSE_WEB_MEM_LIMIT=2g`. Unset or `0` means no limit. Each product's
-table lists its own.
+**Memory limits.** Every container reads `<CONTAINER>_MEM_LIMIT`: its service's name in
+capitals, with `-` made `_`, such as `LANGFUSE_WEB_MEM_LIMIT=2g`. Unset or `0` means no limit.
+A service that runs replicas gives each of them the same limit. Each product's table lists its
+own.
 
 ## Provisioning
 
@@ -994,25 +995,27 @@ Everything else, telemetry and the marketplace's catalogue included, runs at twe
 
 ## Windmill
 
-Windmill runs scripts and flows, and has a web editor for them. It is three containers, always
+Windmill runs scripts and flows, and has a web editor for them. It is three services, always
 on together:
 
 - `windmill-server` is the web UI and the API.
-- `windmill-worker` runs every job: each script, each step of a flow and each schedule. There
-  is one worker, in the worker group `default`.
+- `windmill-worker` runs every job: each script, each step of a flow and each schedule. Two
+  workers run by default, both in the worker group `default`. `WINDMILL_WORKER_REPLICAS` sets
+  how many. They are replicas of one service, so compose names each one itself, such as
+  `userland-windmill-worker-1`.
 - `windmill-lsp` gives the code editor its hints. The browser reaches it under
   `windmill.DOMAIN/ws/`. traefik sends everything else to the server.
 
-The server and the worker run one image. The LSP runs Windmill's second image,
+The server and the workers run one image. The LSP runs Windmill's second image,
 `windmill-extra`, with only its LSP switched on. **All three run one version**, and every
 upgrade moves all three.
 
-**The session door, and why.** At every start, the server and the worker each take a
+**The session door, and why.** At every start, the server and each worker take a
 session-level advisory lock, and hold it across many statements. On each new connection,
 Windmill also sends `SET` commands. The transaction door breaks both. So every Windmill
 connection goes through `pgbouncer-session`. The server's pool holds up to 50 connections, and
-the worker's up to 5. Each opens a connection only when it needs one. 55 fits under the session
-door's 100.
+each worker's up to 5. Each opens a connection only when it needs one. With two workers that is
+60, which fits under the session door's 100. Each more worker adds 5.
 
 **Make its database and its two roles before the first `up`.** Windmill keeps its data behind
 row-level security. For each request it takes one of two roles: `windmill_admin` for an admin,
@@ -1041,15 +1044,15 @@ it, the login page fills both in by itself. So sign in the moment Windmill is he
 change the email and the password. This matters most in public visibility: traefik's
 certificate for `windmill.` under your domain shows in public certificate logs within minutes.
 
-**The worker runs your code.** Anyone who can write a script in Windmill runs code inside
-`windmill-worker`. That code reaches what the worker reaches: the internet, and every container
-on `userland_postgres`. So give that right only to people you trust.
+**The workers run your code.** Anyone who can write a script in Windmill runs code inside a
+worker. That code reaches what the worker reaches: the internet, and every container on
+`userland_postgres`. So give that right only to people you trust.
 
-- The worker has no docker socket, because it would make any script root on the host. So
+- No worker has the docker socket, because it would make any script root on the host. So
   Docker jobs do not run.
-- The worker is not privileged. Windmill's own compose file runs it privileged, to give each
-  job a process space of its own. Here the worker logs `Unshare isolation will NOT be
-  available` at start, and runs jobs without it.
+- No worker is privileged. Windmill's own compose file runs them privileged, to give each job
+  a process space of its own. Here each worker logs `Unshare isolation will NOT be available`
+  at start, and runs jobs without it.
 
 **Secrets.** `WINDMILL_DB_PASSWORD` is the only one in `.env`, and losing it loses nothing:
 `bin/new-password --postgres windmill` gives a new one. Windmill encrypts each workspace's
@@ -1063,14 +1066,15 @@ archive of Postgres is enough to read them again. Two variables stay unset:
 **The volumes need no backup.** Scripts, flows, apps, resources, secret variables and the job
 queue are all in Postgres.
 
-- `windmill_logs` holds the older part of a long job's log. The worker writes it and the server
-  reads it, so both mount it. Losing it loses only those older parts.
-- `windmill_worker_cache` holds the packages jobs download. The next job downloads them again.
+- `windmill_logs` holds the older part of a long job's log. The workers write it and the server
+  reads it, so all of them mount it. Losing it loses only those older parts.
+- `windmill_worker_cache` holds the packages jobs download. The workers share it. The next job
+  downloads them again.
 - `windmill_lsp_cache` holds the editor's hint data.
 
 **Health.** The server's healthcheck asks `/api/health/status`, which needs no login. It
 answers 503 only when Windmill is unhealthy, for example when it cannot reach its database.
-The worker waits for it, so the server runs the migrations first. Nothing waits for the worker
+The workers wait for it, so the server runs the migrations first. Nothing waits for the workers
 or the LSP, so they have no healthcheck.
 
 **Removing it.** Take it out of `COMPOSE_FILE` and run `up`. Then drop its database, and its
@@ -1096,7 +1100,8 @@ The pools, the worker's settings and every other number run at Windmill's defaul
 |---|---|---|
 | `WINDMILL_DB_PASSWORD` | required | Password of the `windmill` user on Postgres, which owns the `windmill` database. |
 | `WINDMILL_SERVER_MEM_LIMIT` | default no limit | Memory limit of `windmill-server`. |
-| `WINDMILL_WORKER_MEM_LIMIT` | default no limit | Memory limit of `windmill-worker`. |
+| `WINDMILL_WORKER_REPLICAS` | default `2` | How many workers run. |
+| `WINDMILL_WORKER_MEM_LIMIT` | default no limit | Memory limit of each worker. |
 | `WINDMILL_LSP_MEM_LIMIT` | default no limit | Memory limit of `windmill-lsp`. |
 
 ## The archivist
@@ -1639,7 +1644,8 @@ asserts:
 - every container another waits on has a healthcheck;
 - consumers join `userland_postgres`, `userland_clickhouse` and `userland_traefik`, and
   `postgres-18` is not on `userland_postgres`;
-- every container is named as its service, and takes its memory limit from its own variable;
+- every container is named as its service, unless its service runs replicas, and takes its
+  memory limit from its own variable;
 - this README names every variable compose reports;
 - every file in `compose/` is a product the tests know, or `public.yml`.
 
@@ -1822,7 +1828,9 @@ nightly on `main`, and by hand from the repo's Actions tab, or with `gh workflow
 
 A product is one file, `compose/<product>.yml`. In it, every container:
 
-- sets `container_name` to its service's name, and `restart: unless-stopped`;
+- sets `container_name` to its service's name, and `restart: unless-stopped`. A service that
+  runs replicas sets no `container_name`: compose names each replica itself, and refuses one
+  fixed name for several;
 - waits in `depends_on`, with `condition: service_healthy`, for every container it needs,
   even one in another product. Compose then refuses the product without that one;
 - joins only the networks it talks on. A product gets a network of its own only when its
