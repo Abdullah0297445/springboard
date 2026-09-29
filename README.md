@@ -30,6 +30,7 @@ runs *for you*. This repo is that layer, for one host.
 | **langfuse** | `compose/langfuse.yml` | langfuse-web, langfuse-worker and langfuse-redis. |
 | **twenty** | `compose/twenty.yml` | twenty-server, twenty-worker and twenty-redis. |
 | **windmill** | `compose/windmill.yml` | windmill-server, two windmill-workers and windmill-lsp. |
+| **litellm** | `compose/litellm.yml` | litellm. |
 | **archivist** | `compose/archivist.yml` | archivist. It takes every archive the dumpers write off the host, into a bucket of its own, as [restic](https://restic.net) snapshots under a master key that never touches the host. |
 | **infisical** | `compose/infisical.yml` | infisical and infisical-redis. It keeps the real copy of userland's `.env`, which `bin/up` writes from it. |
 
@@ -261,6 +262,7 @@ it goes. Compose refuses a product whose variable is missing, so the product goe
 | langfuse | `bin/add-database --postgres langfuse` and `bin/add-database --clickhouse langfuse` | `LANGFUSE_DB_PASSWORD` and `LANGFUSE_CLICKHOUSE_PASSWORD` |
 | twenty | `bin/add-database --postgres twenty` | `TWENTY_DB_PASSWORD` |
 | windmill | `bin/add-database --postgres windmill`, then the two lines under *Windmill* | `WINDMILL_DB_PASSWORD` |
+| litellm | `bin/add-database --postgres litellm` | `LITELLM_DB_PASSWORD` |
 | infisical | `bin/add-database --postgres infisical` | `INFISICAL_DB_PASSWORD` |
 
 ### Making a database
@@ -1103,6 +1105,88 @@ The pools, the worker's settings and every other number run at Windmill's defaul
 | `WINDMILL_WORKER_REPLICAS` | default `2` | How many workers run. |
 | `WINDMILL_WORKER_MEM_LIMIT` | default no limit | Memory limit of each worker. |
 | `WINDMILL_LSP_MEM_LIMIT` | default no limit | Memory limit of `windmill-lsp`. |
+
+## LiteLLM
+
+LiteLLM is one gateway in front of many model providers. Your projects call its one API, and
+it passes each call on to the provider that serves the model. It is one container, `litellm`:
+the API and its web UI, at `litellm.DOMAIN`. The UI is under `/ui`.
+
+Two words are LiteLLM's own:
+
+- A **provider key** is the API key of an upstream provider.
+- A **virtual key** is a key LiteLLM makes for one of its callers. A caller holds a virtual
+  key, never a provider key.
+
+**Everything is set in its web UI.** Models, provider keys, virtual keys and users all live in
+its database, and you add them in the UI. userland writes no config file for it.
+`STORE_MODEL_IN_DB` is what lets the UI keep models there.
+
+**The session door, and why.** At every start, LiteLLM applies its migrations with Prisma.
+Prisma holds a session-level advisory lock for the whole run, and the transaction door cannot
+keep one. LiteLLM sends its queries and its migrations over one URL, `DATABASE_URL`, so that URL
+names `pgbouncer-session`. A second URL for the migrations does not help, as it does for
+langfuse: LiteLLM never uses one for them. It holds up to 10 connections.
+
+**Make its database and its two keys before the first `up`.** The `litellm` user is enough:
+the migrations make tables and indexes, and nothing more.
+
+```sh
+bin/add-database --postgres litellm
+echo "LITELLM_MASTER_KEY=sk-$(bin/random-secret)"
+echo "LITELLM_SALT_KEY=$(bin/random-secret)"
+```
+
+Put all three lines where they go, under *Provisioning*.
+
+- **`LITELLM_MASTER_KEY` is the admin.** It opens every admin API call, and it is the web UI's
+  password. It must start with `sk-`. LiteLLM does not check that when it starts: a key without
+  it fails later, when it is used. Nothing inside LiteLLM can make this key. Without one,
+  LiteLLM would let any caller in with any key, so compose refuses to start it. It can be
+  replaced: put a new one in `.env` and run `up`. While the salt key is set, nothing in the
+  database is encrypted with the master key.
+- **`LITELLM_SALT_KEY` is a one-way door.** It encrypts the provider keys kept in the
+  database. Lose it or change it, and every stored provider key is unreadable, so each must be
+  typed in again. Keep a copy off the machine.
+
+**Signing in.** Open `litellm.DOMAIN/ui`. The username is `admin`, and the password is the
+master key. There is no default password to change. Then add each provider key and each model,
+and make a virtual key for each project that calls LiteLLM.
+
+- In public, anyone can reach this page, so the master key is all that guards it.
+- LiteLLM's docs suggest a personal admin user, with this login turned off. That switch lives
+  only in a config file, which userland does not write, so this login stays on.
+
+**How callers reach it.** At `SCHEME://litellm.DOMAIN`, through traefik, as every product is
+reached. In public, every caller uses that address, a container on this host too. In local,
+only this machine and its browser reach it. Inside a container, `litellm.localhost` points at
+that container itself.
+
+**Nothing to back up but Postgres.** LiteLLM has no volume. Everything it keeps is in its
+database, so the archive of Postgres covers it. Only the salt key sits outside it.
+
+**One container, no Redis.** LiteLLM needs Redis only when several copies of it run, so that
+they share their counts. Here one copy runs, with one worker, LiteLLM's default. It counts its
+rate limits and budgets in that one process.
+
+**Health.** The healthcheck asks `/health/readiness`, which needs no login. It answers 503 when
+LiteLLM cannot reach its database. The image has no `curl` or `wget`, so the check runs
+`python3`. The first start runs every migration, so the healthcheck waits two minutes before it
+counts. A first start took under 20 seconds, for 184 migrations. Nothing waits for LiteLLM.
+
+**Upgrading.** The tag is exact. The next start runs the new version's migrations. LiteLLM
+ships often, and names a stable release plain `v1.x.x`. A tag with `-rc` or `-dev` in it is not
+stable. Read the release notes between the two versions, take a fresh archive with
+`docker exec postgres-dumper dumper now`, then move the tag.
+
+Everything else runs at LiteLLM's defaults.
+
+| Variable | Needed | Meaning |
+|---|---|---|
+| `LITELLM_DB_PASSWORD` | required | Password of the `litellm` user on Postgres, which owns the `litellm` database. |
+| `LITELLM_MASTER_KEY` | required | The admin's key, and the web UI's password. It starts with `sk-`. |
+| `LITELLM_SALT_KEY` | required | Key LiteLLM encrypts stored provider keys with. Never change it. Keep a copy off the machine. |
+| `LITELLM_MEM_LIMIT` | default no limit | Memory limit of `litellm`. |
 
 ## The archivist
 

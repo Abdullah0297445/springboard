@@ -1,0 +1,32 @@
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.103.0
+    container_name: litellm
+    restart: unless-stopped
+    depends_on:
+      pgbouncer-session:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD:?}@pgbouncer-session:5432/litellm
+      STORE_MODEL_IN_DB: true
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?}
+    networks:
+      - postgres
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.litellm.rule=Host(`litellm.${DOMAIN:?}`)
+      - traefik.http.services.litellm.loadbalancer.server.port=4000
+      - traefik.docker.network=userland_traefik
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/readiness')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    mem_limit: ${LITELLM_MEM_LIMIT:-0}
+
+networks:
+  postgres: {}
+  traefik: {}
