@@ -1,7 +1,7 @@
 bats_require_minimum_version 1.5.0
 
 setup_file() {
-	export project=userland-test
+	export project=springboard-test
 	export env_file="$BATS_FILE_TMPDIR/env"
 	export stand_in="$BATS_FILE_TMPDIR/stand-in.yml"
 	cat >"$env_file" <<'EOF'

@@ -1,6 +1,6 @@
-# userland runs on docker compose alone
+# springboard runs on docker compose alone
 
-userland used to be a Go CLI. It asked questions, kept a manifest of what every container
+springboard used to be a Go CLI. It asked questions, kept a manifest of what every container
 depends on, and rendered one `compose.yml` from templates. It is now plain compose files, one
 per product, and `COMPOSE_FILE` in `.env` picks them. Compose already does what the CLI did
 for itself: a file that is not listed is not read, a dependency on a product that is not

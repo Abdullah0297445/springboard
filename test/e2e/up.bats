@@ -1,7 +1,7 @@
 bats_require_minimum_version 1.5.0
 
 setup_file() {
-	export project=userland-test
+	export project=springboard-test
 	export COMPOSE_PROJECT_NAME=$project
 	export COMPOSE_ENV_FILES="$BATS_FILE_TMPDIR/env"
 	export stand_in="$BATS_FILE_TMPDIR/stand-in.yml"
@@ -37,7 +37,7 @@ ARCHIVIST_S3_ENDPOINT=http://moto:5000
 ARCHIVIST_S3_ACCESS_KEY_ID=archivist-s3-key
 ARCHIVIST_S3_SECRET_ACCESS_KEY=archivist-s3-secret
 ARCHIVIST_KEY_PROVIDER=ssm
-ARCHIVIST_KEY_NAME=/userland/archivist-key
+ARCHIVIST_KEY_NAME=/springboard/archivist-key
 ARCHIVIST_KEY_REGION=us-east-1
 ARCHIVIST_KEY_ACCESS_KEY_ID=archivist-key-key
 ARCHIVIST_KEY_SECRET_ACCESS_KEY=archivist-key-secret
@@ -70,7 +70,7 @@ EOF
 		waited=$((waited + 1))
 	done
 	aws 's3.create_bucket(Bucket="archivist-test")'
-	aws "ssm.put_parameter(Name='/userland/archivist-key', Value='0123456789abcdef0123456789abcdef', Type='SecureString')"
+	aws "ssm.put_parameter(Name='/springboard/archivist-key', Value='0123456789abcdef0123456789abcdef', Type='SecureString')"
 	docker compose run --rm archivist init
 	docker compose up --detach --wait --wait-timeout 120 postgres-18 pgbouncer-transaction
 	local made
@@ -80,12 +80,12 @@ EOF
 	docker compose up --detach --wait --wait-timeout 300 infisical
 
 	local admin organization project_id identity_id
-	admin=$(cli bootstrap --email admin@example.test --password admin-password-0123456789 --organization userland)
+	admin=$(cli bootstrap --email admin@example.test --password admin-password-0123456789 --organization springboard)
 	jq -r .identity.credentials.token <<<"$admin" >"$BATS_FILE_TMPDIR/admin-token"
 	organization=$(jq -r .organization.id <<<"$admin")
-	project_id=$(as_admin POST /api/v1/projects '{"projectName":"userland","slug":"userland","type":"secret-manager"}' | jq -r .project.id)
+	project_id=$(as_admin POST /api/v1/projects '{"projectName":"springboard","slug":"springboard","type":"secret-manager"}' | jq -r .project.id)
 	echo "$project_id" >"$BATS_FILE_TMPDIR/project-id"
-	identity_id=$(as_admin POST /api/v1/identities "{\"name\":\"userland-helper\",\"organizationId\":\"$organization\",\"role\":\"member\"}" | jq -r .identity.id)
+	identity_id=$(as_admin POST /api/v1/identities "{\"name\":\"springboard-helper\",\"organizationId\":\"$organization\",\"role\":\"member\"}" | jq -r .identity.id)
 	as_admin POST "/api/v1/projects/$project_id/memberships/identities/$identity_id" '{"role":"member"}' >/dev/null
 	{
 		echo "INFISICAL_CLIENT_ID=$(as_admin POST "/api/v1/auth/universal-auth/identities/$identity_id" '{}' | jq -r .identityUniversalAuth.clientId)"
@@ -159,7 +159,7 @@ containers() {
 		xargs docker inspect --format '{{.Name}} {{.Id}} {{.State.StartedAt}}' | sort
 }
 
-@test "it runs from the root of userland, on one .env, and says what to do without one" {
+@test "it runs from the root of springboard, on one .env, and says what to do without one" {
 	COMPOSE_ENV_FILES="$BATS_FILE_TMPDIR/none" run --separate-stderr bin/up
 	[ "$status" -eq 1 ]
 	[[ "$stderr" == *"there is no $BATS_FILE_TMPDIR/none. On a new host, write the first one, and run bin/up --rebuild."* ]]
@@ -169,7 +169,7 @@ containers() {
 	cd test
 	run --separate-stderr ../bin/up
 	[ "$status" -eq 1 ]
-	[[ "$stderr" == *"run bin/up from the root of userland"* ]]
+	[[ "$stderr" == *"run bin/up from the root of springboard"* ]]
 }
 
 @test "an empty project stops it, and nothing is changed" {
@@ -177,12 +177,12 @@ containers() {
 	before=$(fingerprint)
 	run --separate-stderr bin/up
 	[ "$status" -eq 1 ]
-	[[ "$stderr" == *"the project userland holds no line in its environment prod"* ]]
+	[[ "$stderr" == *"the project springboard holds no line in its environment prod"* ]]
 	[ "$(fingerprint)" = "$before" ]
 	[ -z "$(docker ps --quiet --filter name=^archivist\$)" ]
 }
 
-@test "it writes .env from userland's project, readable only by you, and starts what its COMPOSE_FILE names" {
+@test "it writes .env from springboard's project, readable only by you, and starts what its COMPOSE_FILE names" {
 	sed "s|^COMPOSE_FILE=.*|COMPOSE_FILE=$full|" "$COMPOSE_ENV_FILES" >"$BATS_FILE_TMPDIR/uploaded"
 	printf 'CLICKHOUSE_PASSWORD=clickhouse-password\nSTAND_IN_VALUE=plain\n' >>"$BATS_FILE_TMPDIR/uploaded"
 	upload <"$BATS_FILE_TMPDIR/uploaded"

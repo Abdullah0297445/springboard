@@ -30,7 +30,7 @@ services:
       - traefik.enable=true
       - traefik.http.routers.twenty-server.rule=Host(`twenty.${DOMAIN:?}`)
       - traefik.http.services.twenty-server.loadbalancer.server.port=3000
-      - traefik.docker.network=userland_traefik
+      - traefik.docker.network=${COMPOSE_PROJECT_NAME}_traefik
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:3000/healthz"]
       interval: 15s

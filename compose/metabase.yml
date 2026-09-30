@@ -23,7 +23,7 @@ services:
       - traefik.enable=true
       - traefik.http.routers.metabase.rule=Host(`metabase.${DOMAIN:?}`)
       - traefik.http.services.metabase.loadbalancer.server.port=3000
-      - traefik.docker.network=userland_traefik
+      - traefik.docker.network=${COMPOSE_PROJECT_NAME}_traefik
     volumes:
       - /dev/urandom:/dev/random:ro
       - metabase_plugins:/plugins

@@ -3,7 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: userland/archivist
     pull_policy: build
     container_name: archivist
     restart: unless-stopped

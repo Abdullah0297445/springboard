@@ -55,7 +55,7 @@ services:
       CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?}
       AUTH_DISABLE_SIGNUP: ${LANGFUSE_AUTH_DISABLE_SIGNUP:-true}
-      LANGFUSE_INIT_ORG_ID: userland
+      LANGFUSE_INIT_ORG_ID: ${COMPOSE_PROJECT_NAME}
       LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:?}
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:?}
     networks:
@@ -67,7 +67,7 @@ services:
       - traefik.enable=true
       - traefik.http.routers.langfuse-web.rule=Host(`langfuse.${DOMAIN:?}`)
       - traefik.http.services.langfuse-web.loadbalancer.server.port=3000
-      - traefik.docker.network=userland_traefik
+      - traefik.docker.network=${COMPOSE_PROJECT_NAME}_traefik
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/public/health"]
       interval: 15s

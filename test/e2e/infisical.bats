@@ -1,7 +1,7 @@
 bats_require_minimum_version 1.5.0
 
 setup_file() {
-	export project=userland-test
+	export project=springboard-test
 	export env_file="$BATS_FILE_TMPDIR/env"
 	export stand_in="$BATS_FILE_TMPDIR/stand-in.yml"
 	cat >"$env_file" <<'EOF'
@@ -74,7 +74,7 @@ as_admin() {
 @test "bootstrap makes the first admin without a browser, and sign-up is then closed" {
 	[ "$(admin_config | jq -r .config.initialized)" = false ]
 	[ "$(admin_config | jq -r .config.allowSignUp)" = true ]
-	run --separate-stderr cli bootstrap --email admin@example.test --password admin-password-0123456789 --organization userland
+	run --separate-stderr cli bootstrap --email admin@example.test --password admin-password-0123456789 --organization springboard
 	[ "$status" -eq 0 ]
 	[ "$(jq -r .user.superAdmin <<<"$output")" = true ]
 	jq -r .identity.credentials.token <<<"$output" >"$BATS_FILE_TMPDIR/admin-token"
@@ -87,7 +87,7 @@ as_admin() {
 
 @test "a machine identity logs in and reads a secret" {
 	local project_id identity_id client_id client_secret token
-	project_id=$(as_admin /api/v1/projects '{"projectName":"userland","slug":"userland","type":"secret-manager","shouldCreateDefaultEnvs":false}' | jq -r .project.id)
+	project_id=$(as_admin /api/v1/projects '{"projectName":"springboard","slug":"springboard","type":"secret-manager","shouldCreateDefaultEnvs":false}' | jq -r .project.id)
 	as_admin "/api/v1/projects/$project_id/environments" '{"name":"Host","slug":"host"}' >/dev/null
 	INFISICAL_TOKEN=$(cat "$BATS_FILE_TMPDIR/admin-token") cli secrets set GREETING=hello --projectId "$project_id" --env host >/dev/null
 	identity_id=$(as_admin /api/v1/identities "{\"name\":\"reader\",\"organizationId\":\"$(cat "$BATS_FILE_TMPDIR/organization")\",\"role\":\"no-access\"}" | jq -r .identity.id)

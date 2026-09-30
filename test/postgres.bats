@@ -1,7 +1,7 @@
 bats_require_minimum_version 1.5.0
 
 setup_file() {
-	export project=userland-test
+	export project=springboard-test
 	export env_file="$BATS_FILE_TMPDIR/env"
 	cat >"$env_file" <<'EOF'
 POSTGRES_PASSWORD=postgres-password
@@ -70,11 +70,12 @@ newest_run() {
 	[ "$status" -eq 0 ]
 	password=$(printed METABASE_DB_PASSWORD)
 	[ "${#password}" -eq 32 ]
-	[[ "$output" == *"For a product, put this line in Infisical, in the project userland, environment prod.
+	[[ "$output" == *"For a product, put this line in Infisical, in the project springboard, environment prod.
 On a host without Infisical, put it in .env instead:
 
   METABASE_DB_PASSWORD=$password"* ]]
-	[[ "$output" != *"userland's .env"* ]]
+	[[ "$output" != *"springboard's .env"* ]]
+	[[ "$output" == *"the consumer's compose file declares the network ${project}_postgres external"* ]]
 	run connect "postgresql://metabase:$password@pgbouncer-transaction:5432/metabase" "SELECT current_user || ' ' || current_database()"
 	[ "$status" -eq 0 ]
 	[ "$output" = "metabase metabase" ]
@@ -246,7 +247,7 @@ On a host without Infisical, put it in .env instead:
 	[[ "$output" == *"This drops PostgREST's roles: again_anon, again_authenticator."* ]]
 	[[ "$output" == *"Dropped the role again_authenticator.
 
-For a product, delete AGAIN_DB_PASSWORD from Infisical, in the project userland, environment prod.
+For a product, delete AGAIN_DB_PASSWORD from Infisical, in the project springboard, environment prod.
 On a host without Infisical, delete it from .env instead." ]]
 	run superuser "SELECT count(*) FROM pg_database WHERE datname = 'again'"
 	[ "$output" = "0" ]
@@ -275,7 +276,7 @@ On a host without Infisical, delete it from .env instead." ]]
 	new=$(printed DATABASE_URL)
 	password=$(printed RENEW_DB_PASSWORD)
 	[ "${#password}" -eq 32 ]
-	[[ "$output" == *"For a product, put this line in Infisical, in the project userland, environment prod, and run bin/up.
+	[[ "$output" == *"For a product, put this line in Infisical, in the project springboard, environment prod, and run bin/up.
 On a host without Infisical, put it in .env instead, and run docker compose up -d:
 
   RENEW_DB_PASSWORD=$password"* ]]
@@ -329,14 +330,14 @@ On a host without Infisical, put it in .env instead, and run docker compose up -
 	[ -z "$(printed DATABASE_URL)" ]
 	password=$(printed PGBOUNCER_AUTH_PASSWORD)
 	[ "${#password}" -eq 32 ]
-	[[ "$output" == *"Put this line in Infisical, in the project userland, environment prod, and run bin/up.
+	[[ "$output" == *"Put this line in Infisical, in the project springboard, environment prod, and run bin/up.
 On a host without Infisical, put it in .env instead, and run docker compose up -d.
 Either one recreates both doors, and postgres-18 too. Until then, the doors may refuse new logins.
 
   PGBOUNCER_AUTH_PASSWORD=$password
 
 It is a recovery key, so change your copy off the host too." ]]
-	[[ "$output" != *"userland's .env"* ]]
+	[[ "$output" != *"springboard's .env"* ]]
 	sed -i "s/^PGBOUNCER_AUTH_PASSWORD=.*/PGBOUNCER_AUTH_PASSWORD=$password/" "$env_file"
 	compose up --detach --wait postgres-18 pgbouncer-transaction pgbouncer-session
 	run connect "$url" "SELECT current_user"

@@ -25,7 +25,7 @@ services:
       - traefik.enable=true
       - traefik.http.routers.pgadmin.rule=Host(`pgadmin.${DOMAIN:?}`)
       - traefik.http.services.pgadmin.loadbalancer.server.port=5050
-      - traefik.docker.network=userland_traefik
+      - traefik.docker.network=${COMPOSE_PROJECT_NAME}_traefik
     volumes:
       - pgadmin_data:/var/lib/pgadmin
       - ./config/pgadmin-servers.json:/pgadmin4/servers.json:ro

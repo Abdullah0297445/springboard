@@ -1,6 +1,6 @@
 # Only the master keys and the recovery keys live outside Infisical
 
-userland's `.env` has its real copy in Infisical. `bin/up` writes the file from it just before
+springboard's `.env` has its real copy in Infisical. `bin/up` writes the file from it just before
 `docker compose up`, and nobody edits the file by hand. A consumer's `.env` is its own admin's,
 who may keep it in Infisical too, in a project of its own; no helper reads it. Two kinds of
 secret also live outside Infisical, and nothing else does:
@@ -53,7 +53,7 @@ refuses to write an empty file.
 
 ## Consequences
 
-- You keep the recovery keys off the host, wherever you keep secrets. userland never says
+- You keep the recovery keys off the host, wherever you keep secrets. springboard never says
   where. When you change one, you change your copy too.
 - A new host needs only docker, this repo, the recovery keys, and Infisical's master key copied
   from the secret store.

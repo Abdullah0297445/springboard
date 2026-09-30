@@ -1,21 +1,20 @@
-# userland
+# springboard
 
-One host, one compose project, and products you switch on and off. Clone it, write one
+An open stack of proven, self-hosted products. You clone it to get an application off the
+ground fast. Each product is already good at its own job, and springboard puts them in one
+place: one host, one compose project, and products you switch on and off. Clone it, write one
 `.env`, and run `docker compose up`. On a host you keep, that `.env` lives in Infisical, and
 `bin/up` writes it and brings the host up. The host then runs a reverse proxy, a set of shared
 datastores, and whichever applications you switched on, each behind TLS.
 
-There is no application code here. userland is the ground your own projects stand on,
-and it is deliberately not one of them.
+springboard ships no application code of its own. It is the ground your application stands
+on. What you build on it is yours, in this repo or beside it.
 
-> **This repo is being built in the open.** userland now runs on docker compose alone. Every
+> **This repo is being built in the open.** springboard now runs on docker compose alone. Every
 > product has its compose file, every database is made by a helper, and every database is
-> archived and taken off the host. Infisical keeps userland's `.env`: `bin/up` writes the file
+> archived and taken off the host. Infisical keeps springboard's `.env`: `bin/up` writes the file
 > from it and brings the host up, and `bin/up --rebuild` brings a new host back from the bucket.
 > The design is published as issues on this repo as it is settled.
-
-`userland` is the part of a running system that is not the kernel: everything the machine
-runs *for you*. This repo is that layer, for one host.
 
 ## What you can switch on
 
@@ -32,7 +31,7 @@ runs *for you*. This repo is that layer, for one host.
 | **windmill** | `compose/windmill.yml` | windmill-server, two windmill-workers and windmill-lsp. |
 | **litellm** | `compose/litellm.yml` | litellm. |
 | **archivist** | `compose/archivist.yml` | archivist. It takes every archive the dumpers write off the host, into a bucket of its own, as [restic](https://restic.net) snapshots under a master key that never touches the host. |
-| **infisical** | `compose/infisical.yml` | infisical and infisical-redis. It keeps the real copy of userland's `.env`, which `bin/up` writes from it. |
+| **infisical** | `compose/infisical.yml` | infisical and infisical-redis. It keeps the real copy of springboard's `.env`, which `bin/up` writes from it. |
 
 neo4j is planned.
 
@@ -43,7 +42,7 @@ pointed at it.
 
 Two things are pointed at rather than run. One is an S3-compatible object store you bring:
 the archivist, Langfuse and Twenty each need a bucket of it. The other is a secret store you
-own, which holds two master keys: the archivist's and Infisical's. userland makes neither: you
+own, which holds two master keys: the archivist's and Infisical's. springboard makes neither: you
 make them, and *Object store* and *Secret store* say how. Each bucket is reached by an access
 key of its own. The archivist's may delete under `locks/` and nowhere else, so a compromised
 host cannot erase its own archives. Langfuse's may delete, because its Data Retention feature
@@ -60,10 +59,14 @@ Nothing may ever expire in the archivist's, and *Object store* says why.
 - **You switch on products, not containers.** A product's containers are always on together:
   langfuse is its web, its worker and its Redis. pgadmin is a product of its own, so Postgres
   without pgadmin is a valid choice.
-- **Upstream, not a copy you edit.** You never edit a tracked file, so `git pull` keeps
-  working, and it is how the next product reaches you.
+- **One project name.** Every network and volume starts with it, such as
+  `springboard_postgres`. It is `springboard`, unless `COMPOSE_PROJECT_NAME` in `.env` names
+  another, such as your application's. Choose it before the first `up`: a new name starts on
+  new, empty volumes.
+- **Upstream stays pullable.** If you edit no tracked file, `git pull` merges cleanly, and it
+  is how the next product reaches you. The files you add are yours.
 
-[ADR 0001](docs/adr/0001-compose-alone.md) says why userland runs on compose alone.
+[ADR 0001](docs/adr/0001-compose-alone.md) says why springboard runs on compose alone.
 
 ## Two visibilities
 
@@ -92,8 +95,8 @@ refuses instead.
 ## Running it
 
 ```sh
-git clone https://github.com/Abdullah0297445/userland
-cd userland
+git clone https://github.com/Abdullah0297445/springboard
+cd springboard
 ```
 
 There are two ways to run it. **To try it out**, you write `.env` by hand and run compose.
@@ -151,13 +154,13 @@ MB_ENCRYPTION_SECRET_KEY=...
   back.
 
 This way runs no archivist and no Infisical, so nothing ever leaves the host. It is for local
-visibility, to find out whether you want userland. `postgres-dumper` shows as unhealthy here:
+visibility, to find out whether you want springboard. `postgres-dumper` shows as unhealthy here:
 it waits for its intent, under *The archivist*, and with no archivist there is nowhere for its
 archives to go. Leave it waiting.
 
 ### A host you keep
 
-On a host you keep, the real copy of `.env` is in Infisical, in the project `userland`, in its
+On a host you keep, the real copy of `.env` is in Infisical, in the project `springboard`, in its
 environment `prod`. You never edit the file. You change a line in Infisical's web UI, and run:
 
 ```sh
@@ -248,7 +251,7 @@ consumer's, so it prints both lines, and you take the one you need:
 
 - **A consumer's DSN** goes to the consumer's admin, for the consumer's own `.env`.
 - **A product's line**, such as `METABASE_DB_PASSWORD`, goes in Infisical, in the project
-  `userland`, environment `prod`. On a host without Infisical, it goes in `.env` instead. That
+  `springboard`, environment `prod`. On a host without Infisical, it goes in `.env` instead. That
   is *Trying it out*, and the first host before Infisical runs.
 
 **Before a product with a database first starts**, make its database, and put its line where
@@ -391,7 +394,7 @@ look passwords up with, and its lookup function, `public.pgbouncer_get_auth`, in
 
 ## Object store
 
-userland never runs an object store, and it makes no bucket and no key: you make them. A
+springboard never runs an object store, and it makes no bucket and no key: you make them. A
 product that needs a bucket reads five variables under one prefix: `_BUCKET`, `_REGION`,
 `_ENDPOINT`, `_ACCESS_KEY_ID` and `_SECRET_ACCESS_KEY`. `ARCHIVIST_S3`, `LANGFUSE_S3` and
 `TWENTY_S3` are the three. The region is what your provider calls it. The endpoint is a scheme
@@ -405,7 +408,7 @@ By default, nothing, so a compromised host cannot erase its own archives. Langfu
 twenty's may delete any object in their bucket, because langfuse's Data Retention feature
 deletes and twenty moves a file by copying it and deleting the original. The archivist's may
 delete under `locks/` and nowhere else, so a backup can clear the lock file it just wrote and
-cannot touch the archive. Nothing in userland reads whether versioning is on, so no key may.
+cannot touch the archive. Nothing in springboard reads whether versioning is on, so no key may.
 This is the policy for the archivist's key. Leave out the third statement for a key that may
 delete nothing; for langfuse's and twenty's, add `s3:DeleteObject` to the second instead:
 
@@ -420,8 +423,8 @@ delete nothing; for langfuse's and twenty's, add `s3:DeleteObject` to the second
 }
 ```
 
-**Retention is yours, except where nothing may expire.** Nothing in userland deletes from a
-bucket whose key cannot, and userland never writes a lifecycle rule: any rule is set by you, at
+**Retention is yours, except where nothing may expire.** Nothing in springboard deletes from a
+bucket whose key cannot, and springboard never writes a lifecycle rule: any rule is set by you, at
 your provider. Without a rule, a bucket grows. The archivist's bucket is the exception, and it
 is not a preference. What it holds is one repository whose parts point at each other, so an
 object removed by age takes with it every later part that pointed at it. Set no rule at all
@@ -440,7 +443,7 @@ fires for the archivist, whose objects are far below one part.
 
 ## Secret store
 
-The archivist's master key lives in a secret store you own, never on the host. userland reads
+The archivist's master key lives in a secret store you own, never on the host. springboard reads
 it and never writes it. Five variables reach it: `ARCHIVIST_KEY_PROVIDER` (`ssm`, AWS
 Parameter Store, the one there is), `ARCHIVIST_KEY_NAME`, `ARCHIVIST_KEY_REGION`,
 `ARCHIVIST_KEY_ACCESS_KEY_ID` and `ARCHIVIST_KEY_SECRET_ACCESS_KEY`.
@@ -469,7 +472,7 @@ Make these, in this order:
 The key may only read that one parameter, and nothing it holds writes.
 
 **Infisical's master key** is the second parameter there: a `SecureString` of exactly 32
-characters, such as `openssl rand -hex 16` makes. userland never reads it, so it needs no user
+characters, such as `openssl rand -hex 16` makes. springboard never reads it, so it needs no user
 and no access key. You copy it into `.env` by hand, as `INFISICAL_ENCRYPTION_KEY`, because
 Infisical reads it only as a setting when it starts, and compose hands a container a setting only
 from `.env`. So, unlike the archivist's, it sits on the host while Infisical runs. Infisical keeps
@@ -523,7 +526,7 @@ host, with a database per product and per consumer, each owned by a user of the 
 
 **Nothing reaches Postgres but through a door, except the dumper and pgadmin.** It is a
 wall, not a habit: `postgres-18` sits on a private network, `postgres-server`, that only the
-doors, the dumper and pgadmin join. Consumers and products join `userland_postgres`, where
+doors, the dumper and pgadmin join. Consumers and products join `springboard_postgres`, where
 only the doors are. The dumper names `postgres-18:5432` so that it archives every database
 whichever door is on. pgadmin does because its Query Tool's stop button cancels by the process
 id its connection was handed at the start, and through a door that id is the door's own, so the
@@ -548,7 +551,7 @@ an empty `pgadmin_data` volume at the first start and never again.
 and re-imports at each start, and a password saved in the browser is part of the row it
 deletes. The trade is that editing that file does not reach a pgadmin that has already
 run. Change the server in the browser too, or re-seed: take pgadmin out of `COMPOSE_FILE`,
-`docker volume rm userland_pgadmin_data`, and put it back.
+`docker volume rm springboard_pgadmin_data`, and put it back.
 
 That server connects as the superuser, and its password is not in the file: paste
 `POSTGRES_PASSWORD` from `.env` the first time, and pgadmin keeps an encrypted copy in its
@@ -575,7 +578,7 @@ exactly one proxy in front of it, traefik.
 
 ## ClickHouse
 
-userland runs ClickHouse as one container. langfuse calls that development-only, because one
+springboard runs ClickHouse as one container. langfuse calls that development-only, because one
 box has no redundancy. Every event langfuse ingests is written to your bucket first, and
 Postgres holds everything you configure; ClickHouse holds what you see in the UI.
 `clickhouse-dumper` archives every database on it, under *The archivist*.
@@ -605,7 +608,7 @@ limit is one it respects rather than one it dies against. No number is written h
 
 ClickHouse logs at trace level to files inside the container, in `/var/log/clickhouse-server`,
 rotated by the image; `docker logs clickhouse` shows only the entrypoint. Nothing is published
-on the host: products and consumers reach it on `userland_clickhouse`, ports 8123 for HTTP and
+on the host: products and consumers reach it on `springboard_clickhouse`, ports 8123 for HTTP and
 9000 for the native protocol, and you reach it with `docker exec clickhouse clickhouse-client`.
 
 Its backup directory, `/var/lib/clickhouse/backups`, is the backup folder, `backups`, which
@@ -811,7 +814,7 @@ the queue, with append-only persistence on, so a restart loses no job, and `noev
 because langfuse requires it: an evicted key is a lost job. The two dumpers archive the two
 databases; the queue is not archived, since its jobs are minutes old and their events are in
 the bucket. ClickHouse runs as one container, which langfuse calls development-only, and
-*ClickHouse* says why userland accepts that.
+*ClickHouse* says why springboard accepts that.
 
 **Browsers and SDKs read and write media straight in your bucket through short-lived signed
 links, so the bucket must be reachable from wherever you use langfuse. A cloud bucket is.**
@@ -835,7 +838,7 @@ so nothing is set on its ClickHouse user.
 
 **Accounts.** Sign-up is off in both visibilities. langfuse makes one account from
 `LANGFUSE_INIT_USER_EMAIL` and `LANGFUSE_INIT_USER_PASSWORD` when it starts, the owner of an
-organization called `userland`; the password must be at least eight characters. Sign-up is
+organization called `springboard`; the password must be at least eight characters. Sign-up is
 off even in local because traefik listens on every interface, so on a network you share,
 anyone who sends `langfuse.localhost` to this machine would reach langfuse and could sign up.
 Nobody else can make an account while sign-up is off, including someone you invite, so a
@@ -1004,7 +1007,7 @@ on together:
 - `windmill-worker` runs every job: each script, each step of a flow and each schedule. Two
   workers run by default, both in the worker group `default`. `WINDMILL_WORKER_REPLICAS` sets
   how many. They are replicas of one service, so compose names each one itself, such as
-  `userland-windmill-worker-1`.
+  `springboard-windmill-worker-1`.
 - `windmill-lsp` gives the code editor its hints. The browser reaches it under
   `windmill.DOMAIN/ws/`. traefik sends everything else to the server.
 
@@ -1048,7 +1051,7 @@ certificate for `windmill.` under your domain shows in public certificate logs w
 
 **The workers run your code.** Anyone who can write a script in Windmill runs code inside a
 worker. That code reaches what the worker reaches: the internet, and every container on
-`userland_postgres`. So give that right only to people you trust.
+`springboard_postgres`. So give that right only to people you trust.
 
 - No worker has the docker socket, because it would make any script root on the host. So
   Docker jobs do not run.
@@ -1119,7 +1122,7 @@ Two words are LiteLLM's own:
   key, never a provider key.
 
 **Everything is set in its web UI.** Models, provider keys, virtual keys and users all live in
-its database, and you add them in the UI. userland writes no config file for it.
+its database, and you add them in the UI. springboard writes no config file for it.
 `STORE_MODEL_IN_DB` is what lets the UI keep models there.
 
 **The session door, and why.** At every start, LiteLLM applies its migrations with Prisma.
@@ -1155,7 +1158,7 @@ and make a virtual key for each project that calls LiteLLM.
 
 - In public, anyone can reach this page, so the master key is all that guards it.
 - LiteLLM's docs suggest a personal admin user, with this login turned off. That switch lives
-  only in a config file, which userland does not write, so this login stays on.
+  only in a config file, which springboard does not write, so this login stays on.
 
 **How callers reach it.** At `SCHEME://litellm.DOMAIN`, through traefik, as every product is
 reached. In public, every caller uses that address, a container on this host too. In local,
@@ -1249,7 +1252,7 @@ ClickHouse's own three, `system`, `information_schema` and `INFORMATION_SCHEMA`;
 included. Each is a `BACKUP DATABASE … TO File(…)`: one uncompressed tar, written by ClickHouse
 itself into the backup folder, which it mounts as its backup directory. The dumper hands
 `clickhouse/` to uid 101, the ClickHouse image's own user, because a volume Docker creates
-belongs to root. ClickHouse can write a backup to S3 by itself, and userland does not use that:
+belongs to root. ClickHouse can write a backup to S3 by itself, and springboard does not use that:
 a backup to S3 deletes its own lock file when it finishes, so a key that may not delete fails
 every one, and ClickHouse cannot encrypt an archive it writes to S3 at all.
 
@@ -1375,7 +1378,7 @@ nothing: each runs `scripts/dumper`, mounted into its server's image.
 shows it. A dumper is unhealthy while it waits for its intent, when its last run failed, or when
 none has finished for two intervals. `bin/up` ends by naming each dumper that is not healthy,
 and why. The archivist turns unhealthy when its last upload failed, and healthy again at the
-next one that succeeds. **Nobody is told**: until userland runs something that watches,
+next one that succeeds. **Nobody is told**: until springboard runs something that watches,
 `docker compose ps`, `docker logs` and the snapshot list are the evidence.
 
 **A database comes back by hand, with `bin/restore`, and a restore nobody has rehearsed is not
@@ -1423,7 +1426,7 @@ back. `bin/rebuild` does, under *Bringing a host back*.
 
 ## Infisical
 
-Infisical keeps the real copy of userland's `.env`, in the project `userland`, environment `prod`.
+Infisical keeps the real copy of springboard's `.env`, in the project `springboard`, environment `prod`.
 `bin/up` writes the file from it, under *Running it*. A consumer's admin may keep the consumer's
 `.env` in Infisical too, in a project of its own, with a login of its own. No helper reads it.
 [ADR 0002](docs/adr/0002-secrets-outside-infisical.md) says which secrets stay outside Infisical,
@@ -1446,7 +1449,7 @@ secret in Infisical is lost. Started with another key, Infisical says so in
 
 **The first host** is set up by hand, once. Nothing here makes a secret or a database for you.
 
-1. Make what userland never makes: the archivist's bucket and its master key, under
+1. Make what springboard never makes: the archivist's bucket and its master key, under
    *Object store* and *Secret store*, and Infisical's master key.
 2. Write `.env` by hand:
    - `COMPOSE_FILE=compose.yml:compose/postgres.yml:compose/archivist.yml`, with
@@ -1474,7 +1477,7 @@ secret in Infisical is lost. Started with another key, Infisical says so in
    Create. Keep the role Member. On its page, open Universal Auth and copy the Client ID, then
    Add Client Secret and copy the secret, which is shown once. Put them in `.env` as
    `INFISICAL_CLIENT_ID` and `INFISICAL_CLIENT_SECRET`.
-7. Make the project `userland`. Under its Settings, General, change its slug to `userland`: the
+7. Make the project `springboard`. Under its Settings, General, change its slug to `springboard`: the
    web UI adds random letters to it. Under its Access Control, Machine Identities, choose to add
    one. "Add Machine Identity to Project" opens on Create New: pick Assign Existing instead, then
    the helper's login. Its role starts at No Access: change it to Member.
@@ -1512,7 +1515,7 @@ there are no invites and no password reset by email.
 ## Bringing a host back
 
 When a host is lost, a new one comes back from the bucket and your recovery keys alone. Every
-database comes back from the archive, with every user and its old password. userland's `.env`
+database comes back from the archive, with every user and its old password. springboard's `.env`
 comes back from Infisical, whose own database is one of those databases.
 
 **The recovery keys.** Infisical keeps every secret but two kinds. The master keys live in the
@@ -1534,7 +1537,7 @@ comes back with the globals, and every other line comes from Infisical.
 
 **The order.**
 
-1. Clone userland, and write the first `.env`: the recovery keys, `INFISICAL_ENCRYPTION_KEY`
+1. Clone springboard, and write the first `.env`: the recovery keys, `INFISICAL_ENCRYPTION_KEY`
    copied from the secret store, and `DOMAIN`, `SCHEME` and `SECURE_COOKIES`. Nothing else:
    every other line, `COMPOSE_FILE` included, comes from Infisical. **Never run
    `archivist init` here**: the repository is already in the bucket.
@@ -1622,19 +1625,22 @@ bin/rebuild --postgres --run 20260925T000000Z
   so.
 - A rebuild that fails part way says how to start again on an empty datastore:
   `docker compose down`, then `docker volume rm` of the datastore's volume,
-  `userland_postgres_data` or `userland_clickhouse_data`.
+  `springboard_postgres_data` or `springboard_clickhouse_data`.
 
 ## For a consumer
 
-A **consumer** is a project of your own that uses userland and is not part of it. It runs from
-a compose file in its own repo, and userland never starts it. It reaches userland only by
-joining userland's networks, because no port is published but traefik's.
+A **consumer** is a project of your own that uses springboard and is not part of it. It runs from
+a compose file of its own, and springboard never starts it. It reaches springboard only by
+joining springboard's networks, because no port is published but traefik's. Each network's
+name starts with the project name, under *The shape*: with `COMPOSE_PROJECT_NAME=myapp`, a
+consumer joins `myapp_postgres`, not `springboard_postgres`. `bin/add-database` prints the
+real one.
 
 | For | It joins | It reaches | It needs |
 |---|---|---|---|
-| a database on Postgres | `userland_postgres` | a door: `pgbouncer-transaction:5432` or `pgbouncer-session:5432` | `DATABASE_URL`, printed by `bin/add-database --postgres` |
-| a database on ClickHouse | `userland_clickhouse` | `clickhouse:9000` for the native protocol, or `clickhouse:8123` for HTTP | `CLICKHOUSE_URL`, printed by `bin/add-database --clickhouse` |
-| a hostname behind traefik | `userland_traefik` | nothing: traefik reaches it, at `NAME.DOMAIN` | four labels on its container |
+| a database on Postgres | `springboard_postgres` | a door: `pgbouncer-transaction:5432` or `pgbouncer-session:5432` | `DATABASE_URL`, printed by `bin/add-database --postgres` |
+| a database on ClickHouse | `springboard_clickhouse` | `clickhouse:9000` for the native protocol, or `clickhouse:8123` for HTTP | `CLICKHOUSE_URL`, printed by `bin/add-database --clickhouse` |
+| a hostname behind traefik | `springboard_traefik` | nothing: traefik reaches it, at `NAME.DOMAIN` | four labels on its container |
 
 It joins only the networks it needs, and declares each one `external: true`. Here is a
 consumer with a database on Postgres, behind traefik. `NAME` and `PORT` are the consumer's own.
@@ -1644,22 +1650,22 @@ consumer with a database on Postgres, behind traefik. `NAME` and `PORT` are the 
 services:
   NAME:
     networks:
-      - userland_postgres
-      - userland_traefik
+      - springboard_postgres
+      - springboard_traefik
     labels:
       - traefik.enable=true
       - traefik.http.routers.NAME.rule=Host(`NAME.DOMAIN`)
       - traefik.http.services.NAME.loadbalancer.server.port=PORT
-      - traefik.docker.network=userland_traefik
+      - traefik.docker.network=springboard_traefik
 
 networks:
-  userland_postgres:
+  springboard_postgres:
     external: true
-  userland_traefik:
+  springboard_traefik:
     external: true
 ```
 
-A consumer on ClickHouse joins `userland_clickhouse` the same way. There is no network for
+A consumer on ClickHouse joins `springboard_clickhouse` the same way. There is no network for
 Redis, because no Redis is offered to a consumer. A product that needs Redis runs its own, and
 so does a consumer.
 
@@ -1676,7 +1682,7 @@ starts a consumer.
 
 ### Through a door
 
-**Two doors**, and the DSN names one. `postgres-18` itself is not on `userland_postgres`, so
+**Two doors**, and the DSN names one. `postgres-18` itself is not on `springboard_postgres`, so
 the doors are the only way in.
 
 - **`pgbouncer-transaction`** is the default. It is for a consumer that keeps no state on a
@@ -1726,20 +1732,23 @@ asserts:
 - no port is published but traefik's 80, and its 443 in public;
 - only traefik mounts the docker socket, and no container is privileged;
 - every container another waits on has a healthcheck;
-- consumers join `userland_postgres`, `userland_clickhouse` and `userland_traefik`, and
-  `postgres-18` is not on `userland_postgres`;
+- consumers join `springboard_postgres`, `springboard_clickhouse` and `springboard_traefik`,
+  and `postgres-18` is not on `springboard_postgres`;
+- `COMPOSE_PROJECT_NAME` renames the project, and every network, volume, traefik label and
+  langfuse's organization follow it;
 - every container is named as its service, unless its service runs replicas, and takes its
   memory limit from its own variable;
 - this README names every variable compose reports;
 - every file in `compose/` is a product the tests know, or `public.yml`.
 
 `test/postgres.bats` starts the real `postgres-18` and both doors, under the compose project
-`userland-test`, and runs the helpers against them. It asserts:
+`springboard-test`, and runs the helpers against them. It asserts:
 
 - the doors look passwords up as `pgbouncer_auth`, which is no superuser and inherits nothing;
 - a database added is reached with the printed DSN, through the door it names, as its own user;
 - the printed `NAME_DB_PASSWORD` logs in as the user, for a product's database as for any other,
-  and the helper says it goes in Infisical, or in `.env` on a host without Infisical;
+  and the helper says it goes in Infisical, or in `.env` on a host without Infisical, and names
+  the network of the project it runs in;
 - a database's user reaches no other database, and `vector` is installed;
 - `--api` installs the recipe, and PostgREST's DSN names the session door;
 - adding a name twice, or a name with roles left behind, is refused and changes nothing;
@@ -1768,7 +1777,7 @@ asserts:
 `test/clickhouse.bats` starts the real `clickhouse` the same way, and asserts:
 
 - a database added logs in with the printed DSN, its password line is for Infisical or `.env`,
-  and its user creates, writes, updates and reads a table, and reads the `system` tables langfuse
+  the network it names is the project's own, and its user creates, writes, updates and reads a table, and reads the `system` tables langfuse
   reads;
 - that user reads no other database, and makes no database and no user;
 - a name twice, a user left behind, `--session`, `--api` and a bad name are refused, and change
@@ -1840,13 +1849,13 @@ database made by `bin/add-database --postgres infisical`, and asserts:
 - a machine identity logs in with its client ID and secret, and reads a secret the admin wrote.
 
 `test/e2e/up.bats` sets up a first host, with moto for the bucket and the secret store: Postgres,
-the archivist and Infisical, with the first admin, the helper's login and the project `userland`
+the archivist and Infisical, with the first admin, the helper's login and the project `springboard`
 made through Infisical's API, where you would use the browser. Its `.env` is a file of the
 test's own, named by `COMPOSE_ENV_FILES`. It asserts:
 
-- it runs from the root of userland, on one `.env`, and says what to do without one;
+- it runs from the root of springboard, on one `.env`, and says what to do without one;
 - an empty project stops `bin/up`, and nothing is changed;
-- it writes `.env` from userland's project, readable only by you, and starts what its
+- it writes `.env` from springboard's project, readable only by you, and starts what its
   `COMPOSE_FILE` names;
 - it ends by naming each dumper that waits for its intent;
 - any value reaches a container unchanged: `$`, `"`, `\`, `#`, `'`, `${...}` and a newline;
@@ -1860,8 +1869,8 @@ test's own, named by `COMPOSE_ENV_FILES`. It asserts:
   ClickHouse, and every line in Infisical, while each dumper waits for its intent;
 - a second `--rebuild` changes nothing.
 
-Their container names are the real ones, so they cannot run on a host where userland is up.
-There their first `up` fails, and the running userland is not touched.
+Their container names are the real ones, so they cannot run on a host where springboard is up.
+There their first `up` fails, and the running springboard is not touched.
 
 They run from docker, as CI runs them. The repo is mounted at its own path, because a test that
 starts a container hands bind-mount paths to the host's docker. The quick check:
@@ -1954,7 +1963,7 @@ the table names every one.
   `.gitignore` excludes it before your first commit. On a host you keep, its real copy is in
   Infisical, whose database the archivist takes off the host, and the recovery keys are with
   you. Some of what it holds, the encryption keys a product writes data with, cannot be
-  regenerated, and losing them loses the data. A `.env` written by hand, to try userland out,
+  regenerated, and losing them loses the data. A `.env` written by hand, to try springboard out,
   has no copy anywhere.
 - **Postgres and the doors run at their images' defaults.** No pool size, connection
   ceiling or memory setting is written anywhere in this repo, beyond the two doors'
