@@ -86,12 +86,13 @@ SQL
 	echo
 	echo "  CLICKHOUSE_URL=clickhouse://$name:$password@clickhouse:9000/$name"
 	echo
-	echo "For a product, put this line in Infisical, in the project userland, environment prod."
+	echo "For a product, put this line in Infisical, in the project springboard, environment prod."
 	echo "On a host without Infisical, put it in .env instead:"
 	echo
 	echo "  $(echo "$name" | tr '[:lower:]' '[:upper:]')_CLICKHOUSE_PASSWORD=$password"
 	echo
-	echo "To reach ClickHouse, the consumer's compose file declares the network userland_clickhouse external, and joins it."
+	project=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' clickhouse)
+	echo "To reach ClickHouse, the consumer's compose file declares the network ${project}_clickhouse external, and joins it."
 	exit 0
 fi
 
@@ -177,7 +178,7 @@ echo "For a consumer, through the $door_name:"
 echo
 echo "  DATABASE_URL=postgresql://$name:$password@$door:5432/$name"
 echo
-echo "For a product, put this line in Infisical, in the project userland, environment prod."
+echo "For a product, put this line in Infisical, in the project springboard, environment prod."
 echo "On a host without Infisical, put it in .env instead:"
 echo
 echo "  $(echo "$name" | tr '[:lower:]' '[:upper:]')_DB_PASSWORD=$password"
@@ -198,4 +199,5 @@ if [ -n "$api" ]; then
 	echo "PostgREST hears a schema reload on a LISTEN, and the transaction door drops it without a word."
 fi
 echo
-echo "To reach a door, the consumer's compose file declares the network userland_postgres external, and joins it."
+project=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' postgres-18)
+echo "To reach a door, the consumer's compose file declares the network ${project}_postgres external, and joins it."

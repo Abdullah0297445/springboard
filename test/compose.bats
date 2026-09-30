@@ -51,7 +51,7 @@ ARCHIVIST_S3_ENDPOINT=https://s3.example.test
 ARCHIVIST_S3_ACCESS_KEY_ID=archivist-s3-key
 ARCHIVIST_S3_SECRET_ACCESS_KEY=archivist-s3-secret
 ARCHIVIST_KEY_PROVIDER=ssm
-ARCHIVIST_KEY_NAME=/userland/archivist-key
+ARCHIVIST_KEY_NAME=/springboard/archivist-key
 ARCHIVIST_KEY_REGION=region-1
 ARCHIVIST_KEY_ACCESS_KEY_ID=archivist-key-key
 ARCHIVIST_KEY_SECRET_ACCESS_KEY=archivist-key-secret
@@ -268,13 +268,24 @@ on_network() {
 	[ "$(waited_on_without_healthcheck)" = "" ]
 }
 
-@test "consumers join userland_postgres, userland_clickhouse and userland_traefik, and reach Postgres only through a door" {
+@test "consumers join springboard_postgres, springboard_clickhouse and springboard_traefik, and reach Postgres only through a door" {
 	run --separate-stderr config_of "${products[@]}"
-	[ "$(jq -r '.networks.postgres.name' <<<"$output")" = userland_postgres ]
-	[ "$(jq -r '.networks.clickhouse.name' <<<"$output")" = userland_clickhouse ]
-	[ "$(jq -r '.networks.traefik.name' <<<"$output")" = userland_traefik ]
+	[ "$(jq -r '.networks.postgres.name' <<<"$output")" = springboard_postgres ]
+	[ "$(jq -r '.networks.clickhouse.name' <<<"$output")" = springboard_clickhouse ]
+	[ "$(jq -r '.networks.traefik.name' <<<"$output")" = springboard_traefik ]
 	[ "$(on_network postgres-server)" = "pgadmin pgbouncer-session pgbouncer-transaction postgres-18 postgres-dumper" ]
 	[[ " $(on_network postgres) " != *" postgres-18 "* ]]
+}
+
+@test "COMPOSE_PROJECT_NAME renames the project, and every network, volume, traefik label and langfuse's org follow it" {
+	echo "COMPOSE_PROJECT_NAME=acme" >>"$env_file"
+	run --separate-stderr config_of "${products[@]}"
+	[ "$status" -eq 0 ]
+	[ "$(jq -r .name <<<"$output")" = acme ]
+	[ "$(jq -r '[.networks[].name | select(startswith("acme_") | not)] | join(" ")' <<<"$output")" = "" ]
+	[ "$(jq -r '[.volumes[].name | select(startswith("acme_") | not)] | join(" ")' <<<"$output")" = "" ]
+	[ "$(jq -r '[.services[].labels["traefik.docker.network"] // empty] | unique | join(" ")' <<<"$output")" = acme_traefik ]
+	[ "$(jq -r '.services["langfuse-web"].environment.LANGFUSE_INIT_ORG_ID' <<<"$output")" = acme ]
 }
 
 @test "every container is named as its service, unless its service runs replicas, and takes a memory limit from its own variable" {

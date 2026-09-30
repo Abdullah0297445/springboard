@@ -1,4 +1,4 @@
-module github.com/Abdullah0297445/userland/ssmget
+module github.com/Abdullah0297445/springboard/ssmget
 
 go 1.27
 

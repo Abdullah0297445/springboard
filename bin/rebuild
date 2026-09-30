@@ -83,7 +83,8 @@ $listing"
 $listing"
 names=$(echo "$databases" | sed 's|^.*/||; s|\.[a-z]*$||' | tr '\n' ' ' | sed 's/ $//')
 
-start_again="Start again on an empty $datastore: run docker compose down, docker volume rm userland_${datastore}_data and docker compose up -d, then rebuild again."
+project=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$dumper")
+start_again="Start again on an empty $datastore: run docker compose down, docker volume rm ${project}_${datastore}_data and docker compose up -d, then rebuild again."
 
 cleanup() {
 	docker exec "$dumper" rm -rf "/backups/restore/$datastore"

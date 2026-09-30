@@ -1,7 +1,7 @@
 bats_require_minimum_version 1.5.0
 
 setup_file() {
-	export project=userland-test
+	export project=springboard-test
 	export env_file="$BATS_FILE_TMPDIR/env"
 	export stand_in="$BATS_FILE_TMPDIR/stand-in.yml"
 	cat >"$env_file" <<'EOF'
@@ -14,7 +14,7 @@ ARCHIVIST_S3_ENDPOINT=http://moto:5000
 ARCHIVIST_S3_ACCESS_KEY_ID=archivist-s3-key
 ARCHIVIST_S3_SECRET_ACCESS_KEY=archivist-s3-secret
 ARCHIVIST_KEY_PROVIDER=ssm
-ARCHIVIST_KEY_NAME=/userland/archivist-key
+ARCHIVIST_KEY_NAME=/springboard/archivist-key
 ARCHIVIST_KEY_REGION=us-east-1
 ARCHIVIST_KEY_ACCESS_KEY_ID=archivist-key-key
 ARCHIVIST_KEY_SECRET_ACCESS_KEY=archivist-key-secret
@@ -36,7 +36,7 @@ EOF
 		waited=$((waited + 1))
 	done
 	aws 's3.create_bucket(Bucket="archivist-test")'
-	aws "ssm.put_parameter(Name='/userland/archivist-key', Value='0123456789abcdef0123456789abcdef', Type='SecureString')"
+	aws "ssm.put_parameter(Name='/springboard/archivist-key', Value='0123456789abcdef0123456789abcdef', Type='SecureString')"
 	compose run --rm archivist init
 	compose up --detach --wait --wait-timeout 120 postgres-18 pgbouncer-transaction pgbouncer-session clickhouse archivist
 	compose up --detach postgres-dumper clickhouse-dumper

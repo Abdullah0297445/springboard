@@ -1,14 +1,21 @@
-# userland
+# springboard
 
-One host, one compose project, and products you switch on and off. This file is the
-glossary. It holds no implementation detail.
+An open stack of proven products you clone to get an application off the ground: one host,
+one compose project, and products you switch on and off. This file is the glossary. It holds
+no implementation detail.
 
 ## Language
 
-**userland**:
+**springboard**:
 This repo, and everything it runs on one host as one compose project. The word covers both
-what you clone and what ends up running.
-_Avoid_: platform, stack, engine, system, installation
+what you clone and what ends up running. It is a stack; a product never is.
+_Avoid_: platform, engine, system, installation
+
+**Project name**:
+The name everything springboard runs carries, and the first part of every network and volume
+name. It is springboard, unless whoever cloned it names another, such as their application's.
+Infisical's project for springboard's `.env` is called springboard whatever the project name is.
+_Avoid_: stack name, compose name, prefix
 
 **Product**:
 What you switch on: a set of containers that are always on together, such as langfuse's web,
@@ -31,7 +38,7 @@ A container that stores structured data, such as Postgres, Redis or ClickHouse.
 _Avoid_: store, database (for the whole thing), engine
 
 **Object store**:
-An S3-compatible store for objects. userland points at one and never runs one, so it is
+An S3-compatible store for objects. springboard points at one and never runs one, so it is
 always an external dependency.
 _Avoid_: file store, blob store, bucket (for the store), S3 (as the category), datastore
 
@@ -53,8 +60,8 @@ The type of a dependency on another product.
 _Avoid_: local, built-in, bundled
 
 **External**:
-The type of a dependency on something userland never runs, such as an object store. You
-make it; userland is only told where it is and given the access key that reaches it.
+The type of a dependency on something springboard never runs, such as an object store. You
+make it; springboard is only told where it is and given the access key that reaches it.
 _Avoid_: bring-your-own, third-party, remote, cloud
 
 **Blocked by**:
@@ -67,15 +74,15 @@ langfuse, and cannot be switched off while it is.
 _Avoid_: dependents, upstream of, parent
 
 **Visibility**:
-Whether userland answers to names only this machine resolves, or to real hostnames on the
+Whether springboard answers to names only this machine resolves, or to real hostnames on the
 internet. It is **local** (`*.localhost`, no domain, no certificate; reachable by anyone on a
 network it shares who sends the name) or **public** (real hostnames, TLS), chosen once for the
-whole of userland and never per product.
+whole of springboard and never per product.
 _Avoid_: mode, environment, stage, dev/prod, exposure
 
 **Consumer**:
-A project of your own that uses userland and is not part of it. It may have a database on
-Postgres or ClickHouse, and it may sit behind traefik; userland never runs it. Its `.env` is its
+A project of your own that uses springboard and is not part of it. It may have a database on
+Postgres or ClickHouse, and it may sit behind traefik; springboard never runs it. Its `.env` is its
 own admin's: it may live in Infisical, in a project of its own, but no helper reads or writes it.
 _Avoid_: tenant, client, app, application
 
@@ -91,7 +98,7 @@ is generic: it never makes what one product needs, nor runs a step that is one p
 _Avoid_: tool, CLI, command, wrapper
 
 **Infisical**:
-The product that keeps the real copy of userland's `.env`, and of any consumer's whose admin
+The product that keeps the real copy of springboard's `.env`, and of any consumer's whose admin
 keeps it there, each in a project of its own. It runs on the host, keeps what it holds in a database of its own on Postgres, and encrypts it under
 its master key. It is not the secret store.
 _Avoid_: secret store, vault, secret manager
@@ -106,7 +113,7 @@ _Avoid_: identity, IAM user, credentials, service account, token
 Every secret the host needs before Infisical is running, other than the master keys: the
 access keys to the archivist's bucket and to its master key, the helper's login to Infisical,
 and the passwords Postgres and Infisical start with. A new host is handed them, because nothing on it can give them back. You
-keep them off the host, userland never says where, and Infisical keeps a copy. Every other
+keep them off the host, springboard never says where, and Infisical keeps a copy. Every other
 secret comes only from Infisical.
 _Avoid_: seed, bootstrap secrets, break-glass keys
 
@@ -153,7 +160,7 @@ connection for as long as the container holds its own, so a container on this do
 release promptly.
 
 **DSN**:
-The connection string userland hands a consumer, or writes for a container. On Postgres,
+The connection string springboard hands a consumer, or writes for a container. On Postgres,
 it names a door.
 _Avoid_: connection URL, database URL, credentials
 
@@ -162,7 +169,7 @@ The backup of one database. One archive restores one database alone.
 _Avoid_: dump, backup file, snapshot, copy
 
 **Retention**:
-How long objects stay in their bucket. A rule at your provider sets it, never userland,
+How long objects stay in their bucket. A rule at your provider sets it, never springboard,
 which deletes nothing it has written. The archivist's bucket may carry no rule at all, so its
 archives stay until someone removes them with restic, from a machine whose key may delete.
 _Avoid_: expiry, lifecycle (for the concept), cleanup, pruning
@@ -182,7 +189,7 @@ _Avoid_: test, dry run
 
 ### Roles inside a database, for PostgREST
 
-These exist only in a database that wants a REST API. PostgREST is not a userland
+These exist only in a database that wants a REST API. PostgREST is not a springboard
 container; it runs in the consumer's own repo.
 
 **Authenticator**:
@@ -239,7 +246,7 @@ _Avoid_: bucket (for this), repo, store, vault
 
 **Secret store**:
 A service you own, outside the host, that holds the two master keys and nothing else.
-userland reads the archivist's and never writes it; Infisical's you copy by hand. An external dependency. Infisical is not one: it runs
+springboard reads the archivist's and never writes it; Infisical's you copy by hand. An external dependency. Infisical is not one: it runs
 on the host.
 _Avoid_: vault, parameter store (as the category), key store, KMS
 

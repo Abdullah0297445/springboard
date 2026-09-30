@@ -20,7 +20,7 @@ case $# in
 *) die "$usage" ;;
 esac
 
-[ -f compose.yml ] && [ -f config/env.tmpl ] || die "run bin/up from the root of userland."
+[ -f compose.yml ] && [ -f config/env.tmpl ] || die "run bin/up from the root of springboard."
 env_file=${COMPOSE_ENV_FILES:-.env}
 case $env_file in
 *,*) die "COMPOSE_ENV_FILES names more than one file, and bin/up writes one." ;;

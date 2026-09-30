@@ -1,7 +1,7 @@
 bats_require_minimum_version 1.5.0
 
 setup_file() {
-	export project=userland-test
+	export project=springboard-test
 	export env_file="$BATS_FILE_TMPDIR/env"
 	export stand_in="$BATS_FILE_TMPDIR/stand-in.yml"
 	export master_key=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
@@ -12,7 +12,7 @@ ARCHIVIST_S3_ENDPOINT=http://moto:5000
 ARCHIVIST_S3_ACCESS_KEY_ID=archivist-s3-key
 ARCHIVIST_S3_SECRET_ACCESS_KEY=archivist-s3-secret
 ARCHIVIST_KEY_PROVIDER=ssm
-ARCHIVIST_KEY_NAME=/userland/archivist-key
+ARCHIVIST_KEY_NAME=/springboard/archivist-key
 ARCHIVIST_KEY_REGION=us-east-1
 ARCHIVIST_KEY_ACCESS_KEY_ID=archivist-key-key
 ARCHIVIST_KEY_SECRET_ACCESS_KEY=archivist-key-secret
@@ -56,7 +56,7 @@ EOF
 }
 
 set_key() {
-	aws "ssm.put_parameter(Name='/userland/archivist-key', Value='$1', Type='SecureString', Overwrite=True)"
+	aws "ssm.put_parameter(Name='/springboard/archivist-key', Value='$1', Type='SecureString', Overwrite=True)"
 }
 
 objects() {

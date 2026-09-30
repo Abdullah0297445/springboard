@@ -1,7 +1,7 @@
 bats_require_minimum_version 1.5.0
 
 setup_file() {
-	export project=userland-test
+	export project=springboard-test
 	export env_file="$BATS_FILE_TMPDIR/env"
 	cat >"$env_file" <<'EOF'
 CLICKHOUSE_PASSWORD=clickhouse-password
@@ -46,11 +46,12 @@ newest_run() {
 	url=$(printed CLICKHOUSE_URL)
 	password=$(printed EVENTS_CLICKHOUSE_PASSWORD)
 	[ "${#password}" -eq 32 ]
-	[[ "$output" == *"For a product, put this line in Infisical, in the project userland, environment prod.
+	[[ "$output" == *"For a product, put this line in Infisical, in the project springboard, environment prod.
 On a host without Infisical, put it in .env instead:
 
   EVENTS_CLICKHOUSE_PASSWORD=$password"* ]]
-	[[ "$output" != *"userland's .env"* ]]
+	[[ "$output" != *"springboard's .env"* ]]
+	[[ "$output" == *"the consumer's compose file declares the network ${project}_clickhouse external"* ]]
 	[ "$url" = "clickhouse://events:$password@clickhouse:9000/events" ]
 	run client "$url" "SELECT currentUser(), currentDatabase()"
 	[ "$status" -eq 0 ]
@@ -139,7 +140,7 @@ On a host without Infisical, put it in .env instead:
 	[[ "$output" == *"Dropped the database gone on ClickHouse."* ]]
 	[[ "$output" == *"Dropped the user gone on ClickHouse.
 
-For a product, delete GONE_CLICKHOUSE_PASSWORD from Infisical, in the project userland, environment prod.
+For a product, delete GONE_CLICKHOUSE_PASSWORD from Infisical, in the project springboard, environment prod.
 On a host without Infisical, delete it from .env instead." ]]
 	run admin "SELECT count() FROM system.databases WHERE name = 'gone'"
 	[ "$output" = "0" ]
@@ -176,7 +177,7 @@ On a host without Infisical, delete it from .env instead." ]]
 	new=$(printed CLICKHOUSE_URL)
 	password=$(printed TURN_CLICKHOUSE_PASSWORD)
 	[ "${#password}" -eq 32 ]
-	[[ "$output" == *"For a product, put this line in Infisical, in the project userland, environment prod, and run bin/up.
+	[[ "$output" == *"For a product, put this line in Infisical, in the project springboard, environment prod, and run bin/up.
 On a host without Infisical, put it in .env instead, and run docker compose up -d:
 
   TURN_CLICKHOUSE_PASSWORD=$password"* ]]

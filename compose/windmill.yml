@@ -20,7 +20,7 @@ services:
       - traefik.enable=true
       - traefik.http.routers.windmill-server.rule=Host(`windmill.${DOMAIN:?}`)
       - traefik.http.services.windmill-server.loadbalancer.server.port=8000
-      - traefik.docker.network=userland_traefik
+      - traefik.docker.network=${COMPOSE_PROJECT_NAME}_traefik
     volumes:
       - windmill_logs:/tmp/windmill/logs
     healthcheck:
@@ -67,7 +67,7 @@ services:
       - traefik.enable=true
       - traefik.http.routers.windmill-lsp.rule=Host(`windmill.${DOMAIN:?}`) && PathPrefix(`/ws/`)
       - traefik.http.services.windmill-lsp.loadbalancer.server.port=3001
-      - traefik.docker.network=userland_traefik
+      - traefik.docker.network=${COMPOSE_PROJECT_NAME}_traefik
     volumes:
       - windmill_lsp_cache:/pyls/.cache
     mem_limit: ${WINDMILL_LSP_MEM_LIMIT:-0}

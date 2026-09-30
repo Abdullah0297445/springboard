@@ -77,7 +77,7 @@ if [ "$datastore" = clickhouse ]; then
 		echo "Dropped the user $name on ClickHouse."
 	fi
 	echo
-	echo "For a product, delete $(echo "$name" | tr '[:lower:]' '[:upper:]')_CLICKHOUSE_PASSWORD from Infisical, in the project userland, environment prod."
+	echo "For a product, delete $(echo "$name" | tr '[:lower:]' '[:upper:]')_CLICKHOUSE_PASSWORD from Infisical, in the project springboard, environment prod."
 	echo "On a host without Infisical, delete it from .env instead."
 	exit 0
 fi
@@ -120,5 +120,5 @@ for role in $roles; do
 	echo "Dropped the role $role."
 done
 echo
-echo "For a product, delete $(echo "$name" | tr '[:lower:]' '[:upper:]')_DB_PASSWORD from Infisical, in the project userland, environment prod."
+echo "For a product, delete $(echo "$name" | tr '[:lower:]' '[:upper:]')_DB_PASSWORD from Infisical, in the project springboard, environment prod."
 echo "On a host without Infisical, delete it from .env instead."

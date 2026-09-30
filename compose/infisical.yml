@@ -23,7 +23,7 @@ services:
       - traefik.enable=true
       - traefik.http.routers.infisical.rule=Host(`infisical.${DOMAIN:?}`)
       - traefik.http.services.infisical.loadbalancer.server.port=8080
-      - traefik.docker.network=userland_traefik
+      - traefik.docker.network=${COMPOSE_PROJECT_NAME}_traefik
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/status"]
       interval: 30s
